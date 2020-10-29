@@ -32,12 +32,12 @@
 #include <linux/jesd204/jesd204.h>
 #include <linux/jesd204/jesd204-of.h>
 
-#define CHIPID_AD9208			0xDF
+#define CHIPID_AD9208			0xDE
 #define CHIPID_AD6684			0xDC
 #define CHIPID_AD6688			0xE2
 #define CHIPID_AD9689			0xE2
 #define CHIPID_AD9694			0xDB
-#define CHIPID_AD9695			0xDE
+#define CHIPID_AD9695			0xDF
 #define CHIPID_AD9697			0xDE
 
 #define CHIPID_MASK			0xFF
