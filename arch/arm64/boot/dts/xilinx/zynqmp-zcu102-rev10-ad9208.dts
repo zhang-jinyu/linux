@@ -41,7 +41,7 @@
 		ad9208_clkin: clock@0 {
 			#clock-cells = <0>;
 			compatible = "adjustable-clock";
-			clock-frequency = <3000000000>;
+			clock-frequency = <3194880000>;
 			clock-accuracy = <1000000000>; /* 0 ... 6 Ghz */
 			clock-output-names = "ad9208_clk";
 		};
@@ -49,7 +49,7 @@
 		rx_dma: rx-dmac@9c420000 {
 			#dma-cells = <1>;
 			compatible = "adi,axi-dmac-1.00.a";
-			reg = <0x9c420000 0x10000>;
+			reg = <0x9c400000 0x10000>;
 			interrupts = <0 109 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&zynqmp_clk 71>;
 
@@ -69,7 +69,7 @@
 
 		axi_ad9208_core: axi-ad9208-hpc@84a10000 {
 			compatible = "adi,axi-ad9208-1.0";
-			reg = <0x84a10000 0x10000>;
+			reg = <0x84a00000 0x10000>;
 			dmas = <&rx_dma 0>;
 			dma-names = "rx";
 			spibus-connected = <&adc0_ad9208>;
@@ -133,7 +133,7 @@
 
 		adi,powerdown-mode = <AD9208_PDN_MODE_POWERDOWN>;
 
-		adi,sampling-frequency = /bits/ 64 <2600000000>;
+		adi,sampling-frequency = /bits/ 64 <1277952000>;
 		adi,input-clock-divider-ratio = <1>;
 		adi,duty-cycle-stabilizer-enable;
 
@@ -154,7 +154,7 @@
 		adi,bits-per-sample = <16>;
 		adi,converters-per-device = <2>;
 		adi,control-bits-per-sample = <0>;
-		adi,lanes-per-device = <8>;
+		adi,lanes-per-device = <4>;
 		adi,subclass = <0>;
 
 		/* DDC setup */
@@ -172,19 +172,5 @@
 			adi,nco-channel-phase-offset = /bits/ 64 <0>;
 			adi,ddc-gain-6dB-enable;
 		};
-	};
-
-	ad7940: ad7940@1 {
-		compatible = "adi,ad7940";
-		spi-max-frequency = <1000000>;
-		reg = <1>;
-
-	};
-
-	adt7320: adt7320@2 {
-		compatible = "adi,adt7320";
-		spi-max-frequency = <1000000>;
-		reg = <2>;
-
 	};
 };

@@ -17,7 +17,7 @@
 	status = "okay";
 
 	adc0_ad9208: ad9208@0 {
-		adi,sampling-frequency = /bits/ 64 <2949120000>;
+		adi,sampling-frequency = /bits/ 64 <1277952000>;
 	};
 };
 
@@ -38,7 +38,7 @@
 
 		adi,vcxo-frequency = <122880000>;
 
-		adi,pll2-output-frequency = <2949120000>;
+		adi,pll2-output-frequency = <2555904000>;
 
 		adi,sysref-timer-divider = <1024>;
 		adi,pulse-generator-mode = <0>;
@@ -58,14 +58,14 @@
 		hmc7044_c0: channel@0 {
 			reg = <0>;
 			adi,extended-name = "CLKOUT0";
-			adi,divider = <1>;
+			adi,divider = <2>;
 			adi,driver-mode = <HMC7044_DRIVER_MODE_LVPECL>;
 		};
 		hmc7044_c2: channel@2 {
 			reg = <2>;
 			adi,extended-name = "CLKOUT2";
-			adi,divider = <8>;
-			adi,driver-mode = <HMC7044_DRIVER_MODE_LVDS>;
+			adi,divider = <512>;
+			adi,driver-mode = <HMC7044_DRIVER_MODE_LVPECL>;
 		};
 		hmc7044_c10: channel@10 {
 			reg = <10>;
