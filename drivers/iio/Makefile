@@ -37,6 +37,7 @@ obj-y += magnetometer/
 obj-y += multiplexer/
 obj-y += regmap/
 obj-y += orientation/
+obj-y += rf-transceiver/
 obj-y += potentiometer/
 obj-y += potentiostat/
 obj-y += pressure/
@@ -44,4 +45,3 @@ obj-y += proximity/
 obj-y += resolver/
 obj-y += temperature/
 obj-y += trigger/
-
