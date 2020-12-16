@@ -342,7 +342,7 @@ static struct adi_axi_adc_client *adi_axi_adc_attach_client(struct device *dev)
 		if (!cl->dev)
 			continue;
 
-		if (cl->dev->of_node != cln)
+		if (cl->dev->of_node != cln && cl->conv.of_node != cln)
 			continue;
 
 		if (!try_module_get(cl->dev->driver->owner)) {

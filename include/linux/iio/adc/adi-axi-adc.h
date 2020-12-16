@@ -10,6 +10,7 @@
 
 struct device;
 struct iio_chan_spec;
+struct device_node;
 
 /**
  * struct adi_axi_adc_chip_info - Chip specific information
@@ -37,6 +38,8 @@ struct adi_axi_adc_chip_info {
 /**
  * struct adi_axi_adc_conv - data of the ADC attached to the AXI ADC
  * @chip_info		chip info details for the client ADC
+ * @of_node		Device node of the client. Can be also used to attach
+ *			the client to the AXI ADC.
  * @preenable_setup	op to run in the client before enabling the AXI ADC
  * @reg_access		IIO debugfs_reg_access hook for the client ADC
  * @read_raw		IIO read_raw hook for the client ADC
@@ -44,6 +47,7 @@ struct adi_axi_adc_chip_info {
  */
 struct adi_axi_adc_conv {
 	const struct adi_axi_adc_chip_info		*chip_info;
+	struct device_node				*of_node;
 
 	int (*preenable_setup)(struct adi_axi_adc_conv *conv);
 	int (*reg_access)(struct adi_axi_adc_conv *conv, unsigned int reg,
