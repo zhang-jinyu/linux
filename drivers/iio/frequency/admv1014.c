@@ -35,7 +35,7 @@
 #define ADMV1014_SPI_SOFT_RESET_MSK		BIT(14)
 #define ADMV1014_SPI_SOFT_RESET(x)         	FIELD_PREP(ADMV1014_SPI_SOFT_RESET_MSK, x)
 #define ADMV1014_CHIP_ID_MSK			GENMASK(11, 4)
-#define ADMV1014_CHIP_ID(x)         		FIELD_PREP(ADMV1014_CHIP_ID_MSK, x)
+#define ADMV1014_CHIP_ID             		0x9
 #define ADMV1014_REVISION_ID_MSK		GENMASK(3, 0)
 #define ADMV1014_REVISION_ID(x)        		FIELD_PREP(ADMV1014_REVISION_ID_MSK, x)
 
@@ -114,6 +114,139 @@
 #define ADMV1014_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
 #define ADMV1014_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
 
+enum supported_parts {
+	ADMV1014,
+};
+
+struct admv1014_dev {
+	struct regmap		*regmap;
+	struct clk 		*clkin;
+	u64			clkin_freq;
+
+};
+
+static const struct regmap_config admv1014_regmap_config = {
+	.reg_bits = 7,
+	.val_bits = 16,
+	.read_flag_mask = BIT(7),
+	.max_register = 0x0B,
+};
+
+static int admv1014_init(struct admv1014_dev *dev)
+{
+	int ret;
+	bool en = true;
+	u16 chip_id;
+
+	/* Perform a software reset */
+	ret = regmap_update_bits(dev->regmap, ADMV1014_REG_SPI_CONTROL,
+				 ADMV1014_SPI_SOFT_RESET(1));
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_write(dev->regmap, ADMV1014_REG_VVA_TEMP_COMP, 0x727C);
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_update_bits(dev->regmap, ADMV1014_REG_ENABLE,
+				 ADMV1014_P1DB_COMPENSATION_MSK,
+				 ADMV1014_P1DB_COMPENSATION(3));
+	if (ret < 0)
+		return ret;
+
+	ret = regmap_read(dev->regmap, ADMV1014_REG_SPI_CONTROL, &chip_id);
+	if (ret < 0)
+		return ret;
+
+	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
+	if (chip_id != ADMV1014_CHIP_ID)
+		return -EINVAL;
+
+}
+
+static void admv1014_clk_disable(void *data)
+{
+	struct admv1014_dev *dev = data;
+
+	clk_disable_unprepare(dev->clkin);
+}
+
+static int admv1014_probe(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev;
+	struct regmap *regmap;
+	struct admv1014_dev *dev;
+	int ret;
+
+	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
+	if (!indio_dev)
+		return -ENOMEM;
+
+	regmap = devm_regmap_init_spi(spi, &admv1014_regmap_config);
+	if (IS_ERR(regmap))
+		return PTR_ERR(regmap);
+
+	dev = iio_priv(indio_dev);
+	dev->regmap = regmap;
+
+	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
+	if (ret < 0) {
+		dev_warn(dev, "adi,quad-se-mode property not defined!");
+		return -EINVAL;
+	}
+
+	indio_dev->dev.parent = &spi->dev;
+	indio_dev->info = &admv1014_info;
+	indio_dev->name = "admv1014";
+	indio_dev->channels = admv1014_channels;
+	indio_dev->num_channels = ARRAY_SIZE(admv1014_channels);
+
+	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
+	if (IS_ERR(dev->clkin))
+		return PTR_ERR(dev->clkin);
+
+	ret = clk_prepare_enable(dev->clkin);
+	if (ret < 0)
+		return ret;
+
+	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_disable, dev);
+	if (ret)
+		return ret;
+
+	dev->clkin_freq = clk_get_rate(dev->clkin);
+
+	ret = admv1014_init(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "admv1014 init failed\n");
+		return ret;
+	}
+
+	return devm_iio_device_register(&spi->dev, indio_dev);
+}
+
+static const struct spi_device_id admv1014_id[] = {
+	{ "admv1014", admv1014 },
+	{}
+};
+MODULE_DEVICE_TABLE(spi, admv1014_id);
+
+static const struct of_device_id admv1014_of_match[] = {
+	{ .compatible = "adi,admv1014" },
+	{},
+};
+MODULE_DEVICE_TABLE(of, admv1014_of_match);
+
+static struct spi_driver admv1014_driver = {
+	.driver = {
+			.name = "admv1014",
+			.of_match_table = admv1014_of_match,
+		},
+	.probe = admv1014_probe,
+	.id_table = admv1014_id,
+};
+module_spi_driver(admv1014_driver);
 
 
-
+MODULE_AUTHOR("Antoniu Miclaus <antoniu.miclaus@analog.com");
+MODULE_DESCRIPTION("Analog Devices ADMV1014");
+MODULE_LICENSE("GPL v2");
