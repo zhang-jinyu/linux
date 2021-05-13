@@ -114,6 +114,9 @@
 #define ADMV1014_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
 #define ADMV1014_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
 
+#define ADMV1014_MAX_SPI_READ 2
+#define ADMV1014_SPI_READ_BUFFER_SIZE (ADMV1014_MAX_SPI_READ + 1)
+
 enum supported_parts {
 	ADMV1014,
 };
@@ -122,14 +125,87 @@ struct admv1014_dev {
 	struct regmap		*regmap;
 	struct clk 		*clkin;
 	u64			clkin_freq;
+	bool			parity_en;
 
 };
+
+static void check_parity(u32 input, u32 *count)
+{
+	u32 i = 0;
+	while(input) {
+		i += input & 1;
+		input >>= 1;
+	}
+
+	*count = i;
+}
+
+static int admv1014_regmap_spi_read(void *context,
+				  const void *reg, size_t reg_size,
+				  void *val, size_t val_size)
+{
+	struct device *dev = context;
+	struct spi_device *spi = to_spi_device(dev);
+	u8 result[ADMV1014_SPI_READ_BUFFER_SIZE];
+	ssize_t status;
+
+	if (val_size > ADMV1014_MAX_SPI_READ)
+		return -EINVAL;
+
+	return spi_write_then_read(spi, reg, 1, result, val_size + 1);
+	// TODO: Bit shifting and parity check
+}
+
+static int admv1014_regmap_spi_write(void *context, const void *data,
+				   size_t count)
+{
+	struct device *device = context;
+	struct spi_device *spi = to_spi_device(device);
+	struct admv1014_dev *dev = spi->dev;
+	u32 count, *buf;
+
+	*buf = *data << 1;
+
+	if (dev->parity_en)
+	{
+		check_parity(*data, &count);
+
+		if (count % 2 == 0)
+			*buf |= 0x1;
+	}
+
+	return spi_write(spi, buf, count);
+}
 
 static const struct regmap_config admv1014_regmap_config = {
 	.reg_bits = 7,
 	.val_bits = 16,
-	.read_flag_mask = BIT(7),
+	.read_flag_mask = BIT(6),
 	.max_register = 0x0B,
+};
+
+static struct regmap_bus admv1014_regmap_bus = {
+	.read = admv1014_regmap_spi_read,
+	.write = admv1014_regmap_spi_write,
+	.read_flag_mask = BIT(6),
+	.max_raw_read = ADMV1014_MAX_SPI_READ,
+};
+
+static int admv1014_reg_access(struct iio_dev *indio_dev,
+				unsigned int reg,
+				unsigned int write_val,
+				unsigned int *read_val)
+{
+	struct admv1014_dev *dev = iio_priv(indio_dev);
+
+	if (read_val)
+		return regmap_read(dev->regmap, reg, read_val);
+	else
+		return regmap_write(dev->regmap, reg, write_val);
+}
+
+static const struct iio_info admv1014_info = {
+	.debugfs_reg_access = &admv1014_reg_access,
 };
 
 static int admv1014_init(struct admv1014_dev *dev)
@@ -182,7 +258,8 @@ static int admv1014_probe(struct spi_device *spi)
 	if (!indio_dev)
 		return -ENOMEM;
 
-	regmap = devm_regmap_init_spi(spi, &admv1014_regmap_config);
+	regmap = devm_regmap_init(&spi->dev, &admv1014_regmap_bus,
+				  &spi->dev, &admv1014_regmap_config);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
