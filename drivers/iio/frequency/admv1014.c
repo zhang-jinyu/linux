@@ -126,7 +126,6 @@ struct admv1014_dev {
 	struct clk 		*clkin;
 	u64			clkin_freq;
 	bool			parity_en;
-
 };
 
 static void check_parity(u32 input, u32 *count)
@@ -191,6 +190,164 @@ static struct regmap_bus admv1014_regmap_bus = {
 	.max_raw_read = ADMV1014_MAX_SPI_READ,
 };
 
+enum admv1014_iio_dev_attr {
+	IF_AMP_COARSE_GAIN_I,
+	IF_AMP_COARSE_GAIN_Q,
+	IF_AMP_FINE_GAIN_I,
+	IF_AMP_FINE_GAIN_Q,
+	LOAMP_PH_ADJ_I_FINE,
+	LOAMP_PH_ADJ_Q_FINE,
+};
+
+static ssize_t adar1000_store(struct device *dev,
+			      struct device_attribute *attr,
+			      const char *buf, size_t len)
+{
+	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
+	struct admv1014_dev *dev = iio_priv(indio_dev);
+	u16 mask = 0, val = 0;
+	u8 reg = 0;
+	int ret = 0;
+
+	ret = kstrtou16(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	switch ((u32)this_attr->address) {
+	case IF_AMP_COARSE_GAIN_I:
+		reg = ADMV1014_REG_IF_AMP;
+		mask = ADMV1014_IF_AMP_COARSE_GAIN_I_MSK;
+		val = ADMV1014_IF_AMP_COARSE_GAIN_I(val);
+		break;
+	case IF_AMP_COARSE_GAIN_Q:
+		reg = ADMV1014_REG_IF_AMP_BB_AMP;
+		mask = ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK;
+		val = ADMV1014_IF_AMP_COARSE_GAIN_Q(val);
+		break;
+	case IF_AMP_FINE_GAIN_I:
+		reg = ADMV1014_REG_IF_AMP;
+		mask = ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
+		val = ADMV1014_IF_AMP_FINE_GAIN_I(val);
+		break;
+	case IF_AMP_FINE_GAIN_Q:
+		reg = ADMV1014_REG_IF_AMP;
+		mask = ADMV1014_IF_AMP_FINE_GAIN_Q_MSK;
+		val = ADMV1014_IF_AMP_FINE_GAIN_Q(val);
+		break;
+	case LOAMP_PH_ADJ_I_FINE:
+		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
+		mask = ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK;
+		val = ADMV1014_LOAMP_PH_ADJ_I_FINE(val);
+	case LOAMP_PH_ADJ_Q_FINE:
+		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
+		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
+		val = ADMV1014_LOAMP_PH_ADJ_Q_FINE(val);
+	default:
+		return -EINVAL;
+	}
+
+	ret = regmap_update_bits(dev->regmap, reg, mask, val);
+
+	return ret ? ret : len;
+}
+
+static ssize_t adar1000_show(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
+	struct admv1014_dev *dev = iio_priv(indio_dev);
+	int ret = 0;
+	u16 mask = 0, data_shift = 0, val = 0;
+	u8 reg = 0;
+
+	switch ((u32)this_attr->address) {
+	case IF_AMP_COARSE_GAIN_I:
+		reg = ADMV1014_REG_IF_AMP;
+		mask = ADMV1014_IF_AMP_COARSE_GAIN_I_MSK;
+		data_shift = 8;
+		break;
+	case IF_AMP_COARSE_GAIN_Q:
+		reg = ADMV1014_REG_IF_AMP_BB_AMP;
+		mask = ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK;
+		data_shift = 12;
+		break;
+	case IF_AMP_FINE_GAIN_I:
+		reg = ADMV1014_REG_IF_AMP;
+		mask = ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
+		data_shift = 4;
+		break;
+	case IF_AMP_FINE_GAIN_Q:
+		reg = ADMV1014_REG_IF_AMP;
+		mask = ADMV1014_IF_AMP_FINE_GAIN_Q_MSK;
+		break;
+	case LOAMP_PH_ADJ_I_FINE:
+		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
+		mask = ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK;
+		data_shift = 9;
+	case LOAMP_PH_ADJ_Q_FINE:
+		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
+		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
+		data_shift = 2;
+	default:
+		return -EINVAL;
+	}
+
+	ret = regmap_read(dev->regmap, reg, &val);
+	if (ret < 0)
+		return ret;
+
+	val = (val & maks) >> data_shift;
+
+	return sprintf(buf, "%d\n", val);
+}
+
+static IIO_DEVICE_ATTR(if_amp_coarse_gain_i, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       IF_AMP_COARSE_GAIN_I);
+
+static IIO_DEVICE_ATTR(if_amp_coarse_gain_q, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       IF_AMP_COARSE_GAIN_Q);
+
+static IIO_DEVICE_ATTR(if_amp_fine_gain_i, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       IF_AMP_FINE_GAIN_I);
+
+static IIO_DEVICE_ATTR(if_amp_fine_gain_q, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       IF_AMP_FINE_GAIN_Q);
+
+static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       LOAMP_PH_ADJ_I_FINE);
+
+static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       LOAMP_PH_ADJ_Q_FINE);
+
+static struct attribute *admv1014_attributes[] = {
+	&iio_dev_attr_if_amp_coarse_gain_i.dev_attr.attr,
+	&iio_dev_attr_if_amp_coarse_gain_q.dev_attr.attr,
+	&iio_dev_attr_if_amp_fine_gain_i.dev_attr.attr,
+	&iio_dev_attr_if_amp_fine_gain_q.dev_attr.attr,
+	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
+	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
+	NULL
+};
+
+static const struct attribute_group admv1014_attribute_group = {
+	.attrs = admv1014_attributes,
+};
+
 static int admv1014_reg_access(struct iio_dev *indio_dev,
 				unsigned int reg,
 				unsigned int write_val,
@@ -206,6 +363,7 @@ static int admv1014_reg_access(struct iio_dev *indio_dev,
 
 static const struct iio_info admv1014_info = {
 	.debugfs_reg_access = &admv1014_reg_access,
+	.attrs = &admv1014_attribute_group,
 };
 
 static int admv1014_init(struct admv1014_dev *dev)
@@ -237,6 +395,10 @@ static int admv1014_init(struct admv1014_dev *dev)
 	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
 	if (chip_id != ADMV1014_CHIP_ID)
 		return -EINVAL;
+
+	return regmap_update_bits(dev->regmap, ADMV1014_REG_QUAD,
+				 ADMV1014_REG_QUAD_SE_MODE_MSK,
+				 ADMV1014_REG_QUAD_SE_MODE(dev->quad_se_mode));
 
 }
 
