@@ -64,7 +64,7 @@ config AD9517
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad9517.
 
-config ADVM1014
+config ADMV1014
 	tristate "Analog Devices ADMV1014 Microwave Downconverter"
 	depends on SPI
 	depends on COMMON_CLK

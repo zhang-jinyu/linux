@@ -9,6 +9,7 @@
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
+#include <linux/clk/clkscale.h>
 #include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
@@ -124,6 +125,7 @@ enum supported_parts {
 struct admv1014_dev {
 	struct regmap		*regmap;
 	struct clk 		*clkin;
+	u8			quad_se_mode;
 	u64			clkin_freq;
 	bool			parity_en;
 };
@@ -160,16 +162,16 @@ static int admv1014_regmap_spi_write(void *context, const void *data,
 {
 	struct device *device = context;
 	struct spi_device *spi = to_spi_device(device);
-	struct admv1014_dev *dev = spi->dev;
-	u32 count, *buf;
+	struct admv1014_dev *dev = spi_dev_put(spi);
+	u32 cnt, *buf;
 
 	*buf = *data << 1;
 
 	if (dev->parity_en)
 	{
-		check_parity(*data, &count);
+		check_parity(*data, &cnt);
 
-		if (count % 2 == 0)
+		if (cnt % 2 == 0)
 			*buf |= 0x1;
 	}
 
@@ -199,7 +201,7 @@ enum admv1014_iio_dev_attr {
 	LOAMP_PH_ADJ_Q_FINE,
 };
 
-static ssize_t adar1000_store(struct device *dev,
+static ssize_t admv1014_store(struct device *dev,
 			      struct device_attribute *attr,
 			      const char *buf, size_t len)
 {
@@ -252,7 +254,7 @@ static ssize_t adar1000_store(struct device *dev,
 	return ret ? ret : len;
 }
 
-static ssize_t adar1000_show(struct device *dev,
+static ssize_t admv1014_show(struct device *dev,
 			struct device_attribute *attr,
 			char *buf)
 {
@@ -260,7 +262,8 @@ static ssize_t adar1000_show(struct device *dev,
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 	int ret = 0;
-	u16 mask = 0, data_shift = 0, val = 0;
+	u16 mask = 0, data_shift = 0;
+	u32 val = 0;
 	u8 reg = 0;
 
 	switch ((u32)this_attr->address) {
@@ -299,7 +302,7 @@ static ssize_t adar1000_show(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	val = (val & maks) >> data_shift;
+	val = (val & mask) >> data_shift;
 
 	return sprintf(buf, "%d\n", val);
 }
@@ -370,7 +373,7 @@ static int admv1014_init(struct admv1014_dev *dev)
 {
 	int ret;
 	bool en = true;
-	u16 chip_id;
+	u32 chip_id;
 	struct clock_scale devclk_clkscale;
 
 	of_clk_get_scale(spi->dev.of_node, "lo_in", &devclk_clkscale);
@@ -402,8 +405,8 @@ static int admv1014_init(struct admv1014_dev *dev)
 		return -EINVAL;
 
 	return regmap_update_bits(dev->regmap, ADMV1014_REG_QUAD,
-				 ADMV1014_REG_QUAD_SE_MODE_MSK,
-				 ADMV1014_REG_QUAD_SE_MODE(dev->quad_se_mode));
+				 ADMV1014_QUAD_SE_MODE_MSK,
+				 ADMV1014_QUAD_SE_MODE(dev->quad_se_mode));
 
 }
 
@@ -435,15 +438,13 @@ static int admv1014_probe(struct spi_device *spi)
 
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
-		dev_warn(dev, "adi,quad-se-mode property not defined!");
+		dev_err(&spi->dev, "adi,quad-se-mode property not defined!");
 		return -EINVAL;
 	}
 
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1014_info;
 	indio_dev->name = "admv1014";
-	indio_dev->channels = admv1014_channels;
-	indio_dev->num_channels = ARRAY_SIZE(admv1014_channels);
 
 	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
 	if (IS_ERR(dev->clkin))
@@ -467,7 +468,7 @@ static int admv1014_probe(struct spi_device *spi)
 }
 
 static const struct spi_device_id admv1014_id[] = {
-	{ "admv1014", admv1014 },
+	{ "admv1014", ADMV1014 },
 	{}
 };
 MODULE_DEVICE_TABLE(spi, admv1014_id);
