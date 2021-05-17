@@ -8,7 +8,7 @@
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/clk.h>
-#include <linux/clk/clkscale.h>
+#include <linux/clkdev.h>
 #include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
@@ -371,6 +371,11 @@ static int admv1014_init(struct admv1014_dev *dev)
 	int ret;
 	bool en = true;
 	u16 chip_id;
+	struct clock_scale devclk_clkscale;
+
+	of_clk_get_scale(spi->dev.of_node, "lo_in", &devclk_clkscale);
+
+	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, &devclk_clkscale);
 
 	/* Perform a software reset */
 	ret = regmap_update_bits(dev->regmap, ADMV1014_REG_SPI_CONTROL,
@@ -451,8 +456,6 @@ static int admv1014_probe(struct spi_device *spi)
 	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_disable, dev);
 	if (ret)
 		return ret;
-
-	dev->clkin_freq = clk_get_rate(dev->clkin);
 
 	ret = admv1014_init(dev);
 	if (ret < 0) {

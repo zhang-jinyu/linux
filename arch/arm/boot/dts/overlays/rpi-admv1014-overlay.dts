@@ -41,7 +41,7 @@
 				compatible = "adi,admv1014";
 				reg = <0>;
 				spi-max-frequency = <1000000>;
-				clocks = <&admv1014_lo>;
+				clocks = <&admv1014_lo 3>;
 				clock-names = "lo_in";
 				adi,quad-se-mode = <0>
 			};
