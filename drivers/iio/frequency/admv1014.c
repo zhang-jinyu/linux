@@ -17,6 +17,8 @@
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
 
+#include <linux/iio/sysfs.h>
+
 /* ADMV1014 Register Map */
 #define ADMV1014_REG_SPI_CONTROL		0x00
 #define ADMV1014_REG_ALARM 			0x01
@@ -115,7 +117,7 @@
 #define ADMV1014_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
 #define ADMV1014_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
 
-#define ADMV1014_MAX_SPI_READ 2
+#define ADMV1014_MAX_SPI_READ 3
 #define ADMV1014_SPI_READ_BUFFER_SIZE (ADMV1014_MAX_SPI_READ + 1)
 
 enum supported_parts {
@@ -123,8 +125,11 @@ enum supported_parts {
 };
 
 struct admv1014_dev {
+	struct spi_device 	*spi;
 	struct regmap		*regmap;
 	struct clk 		*clkin;
+	struct clock_scale	*clkscale;
+	struct notifier_block	nb;
 	u8			quad_se_mode;
 	u64			clkin_freq;
 	bool			parity_en;
@@ -148,7 +153,6 @@ static int admv1014_regmap_spi_read(void *context,
 	struct device *dev = context;
 	struct spi_device *spi = to_spi_device(dev);
 	u8 result[ADMV1014_SPI_READ_BUFFER_SIZE];
-	ssize_t status;
 
 	if (val_size > ADMV1014_MAX_SPI_READ)
 		return -EINVAL;
@@ -162,14 +166,16 @@ static int admv1014_regmap_spi_write(void *context, const void *data,
 {
 	struct device *device = context;
 	struct spi_device *spi = to_spi_device(device);
-	struct admv1014_dev *dev = spi_dev_put(spi);
+	struct iio_dev *indio_dev = dev_to_iio_dev(device);
+	struct admv1014_dev *dev = iio_priv(indio_dev);
 	u32 cnt, *buf;
 
-	*buf = *data << 1;
+	buf = data;
+	*buf <<= 1;
 
 	if (dev->parity_en)
 	{
-		check_parity(*data, &cnt);
+		check_parity(*buf, &cnt);
 
 		if (cnt % 2 == 0)
 			*buf |= 0x1;
@@ -178,17 +184,38 @@ static int admv1014_regmap_spi_write(void *context, const void *data,
 	return spi_write(spi, buf, count);
 }
 
+static int admv1014_regmap_spi_update_bits(void *context, unsigned int reg,
+			       unsigned int mask, unsigned int val)
+{
+	struct device *device = context;
+	struct spi_device *spi = to_spi_device(device);
+	struct iio_dev *indio_dev = dev_to_iio_dev(device);
+	struct admv1014_dev *dev = iio_priv(indio_dev);
+	u32 data, temp;
+	int status;
+
+	status = regmap_read(dev->regmap, reg, &data);
+	if (status < 0)
+		return status;
+
+	temp = data & ~mask;
+	temp |= val & mask;
+
+	return regmap_write(dev->regmap, reg, temp);
+}
+
 static const struct regmap_config admv1014_regmap_config = {
-	.reg_bits = 7,
+	.reg_bits = 8,
 	.val_bits = 16,
-	.read_flag_mask = BIT(6),
+	.read_flag_mask = BIT(7),
 	.max_register = 0x0B,
 };
 
 static struct regmap_bus admv1014_regmap_bus = {
 	.read = admv1014_regmap_spi_read,
 	.write = admv1014_regmap_spi_write,
-	.read_flag_mask = BIT(6),
+	.reg_update_bits = admv1014_regmap_spi_update_bits,
+	.read_flag_mask = BIT(7),
 	.max_raw_read = ADMV1014_MAX_SPI_READ,
 };
 
@@ -201,11 +228,11 @@ enum admv1014_iio_dev_attr {
 	LOAMP_PH_ADJ_Q_FINE,
 };
 
-static ssize_t admv1014_store(struct device *dev,
+static ssize_t admv1014_store(struct device *device,
 			      struct device_attribute *attr,
 			      const char *buf, size_t len)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_dev *indio_dev = dev_to_iio_dev(device);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 	u16 mask = 0, val = 0;
@@ -241,10 +268,12 @@ static ssize_t admv1014_store(struct device *dev,
 		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK;
 		val = ADMV1014_LOAMP_PH_ADJ_I_FINE(val);
+		break;
 	case LOAMP_PH_ADJ_Q_FINE:
 		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
 		val = ADMV1014_LOAMP_PH_ADJ_Q_FINE(val);
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -254,11 +283,11 @@ static ssize_t admv1014_store(struct device *dev,
 	return ret ? ret : len;
 }
 
-static ssize_t admv1014_show(struct device *dev,
+static ssize_t admv1014_show(struct device *device,
 			struct device_attribute *attr,
 			char *buf)
 {
-	struct iio_dev *indio_dev = dev_to_iio_dev(dev);
+	struct iio_dev *indio_dev = dev_to_iio_dev(device);
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 	int ret = 0;
@@ -290,10 +319,12 @@ static ssize_t admv1014_show(struct device *dev,
 		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK;
 		data_shift = 9;
+		break;
 	case LOAMP_PH_ADJ_Q_FINE:
 		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
 		data_shift = 2;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -337,6 +368,7 @@ static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
 		       admv1014_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
+
 static struct attribute *admv1014_attributes[] = {
 	&iio_dev_attr_if_amp_coarse_gain_i.dev_attr.attr,
 	&iio_dev_attr_if_amp_coarse_gain_q.dev_attr.attr,
@@ -369,19 +401,32 @@ static const struct iio_info admv1014_info = {
 	.attrs = &admv1014_attribute_group,
 };
 
+static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, void *data)
+{
+	struct admv1014_dev *dev = container_of(nb, struct admv1014_dev, nb);
+	struct clk_notifier_data *cnd = data;
+
+	/* cache the new rate */
+	dev->clkin_freq = clk_get_rate_scaled(cnd->new_rate, dev->clkscale);
+
+	return NOTIFY_OK;
+}
+
+static void admv1014_clk_notifier_unreg(void *data)
+{
+	struct admv1014_dev *dev = data;
+
+	clk_notifier_unregister(dev->clkin, &dev->nb);
+}
+
 static int admv1014_init(struct admv1014_dev *dev)
 {
 	int ret;
-	bool en = true;
 	u32 chip_id;
-	struct clock_scale devclk_clkscale;
-
-	of_clk_get_scale(spi->dev.of_node, "lo_in", &devclk_clkscale);
-
-	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, &devclk_clkscale);
 
 	/* Perform a software reset */
 	ret = regmap_update_bits(dev->regmap, ADMV1014_REG_SPI_CONTROL,
+				 ADMV1014_SPI_SOFT_RESET_MSK,
 				 ADMV1014_SPI_SOFT_RESET(1));
 	if (ret < 0)
 		return ret;
@@ -430,11 +475,14 @@ static int admv1014_probe(struct spi_device *spi)
 
 	regmap = devm_regmap_init(&spi->dev, &admv1014_regmap_bus,
 				  &spi->dev, &admv1014_regmap_config);
-	if (IS_ERR(regmap))
+	if (IS_ERR(regmap)) {
+		dev_err(&spi->dev, "invalid regmap");
 		return PTR_ERR(regmap);
+	}
 
 	dev = iio_priv(indio_dev);
 	dev->regmap = regmap;
+	dev->spi = spi;
 
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
@@ -447,22 +495,38 @@ static int admv1014_probe(struct spi_device *spi)
 	indio_dev->name = "admv1014";
 
 	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
-	if (IS_ERR(dev->clkin))
+	if (IS_ERR(dev->clkin)) {
 		return PTR_ERR(dev->clkin);
+	}
 
 	ret = clk_prepare_enable(dev->clkin);
-	if (ret < 0)
+	if (ret < 0) {
 		return ret;
+	}
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_disable, dev);
+	if (ret < 0) {
+		return ret;
+	}
+
+	of_clk_get_scale(spi->dev.of_node, "lo_in", dev->clkscale);
+
+	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, dev->clkscale);
+	dev->nb.notifier_call = admv1014_freq_change;
+	ret = clk_notifier_register(dev->clkin, &dev->nb);
 	if (ret)
 		return ret;
 
-	ret = admv1014_init(dev);
+	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_notifier_unreg, dev);
 	if (ret < 0) {
-		dev_err(&spi->dev, "admv1014 init failed\n");
 		return ret;
 	}
+
+	// ret = admv1014_init(dev);
+	// if (ret < 0) {
+	// 	dev_err(&spi->dev, "admv1014 init failed\n");
+	// 	return ret;
+	// }
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
