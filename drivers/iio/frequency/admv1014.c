@@ -14,6 +14,7 @@
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
+#include <linux/notifier.h>
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
 
@@ -188,7 +189,6 @@ static int admv1014_regmap_spi_update_bits(void *context, unsigned int reg,
 			       unsigned int mask, unsigned int val)
 {
 	struct device *device = context;
-	struct spi_device *spi = to_spi_device(device);
 	struct iio_dev *indio_dev = dev_to_iio_dev(device);
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 	u32 data, temp;
@@ -407,7 +407,7 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 	struct clk_notifier_data *cnd = data;
 
 	/* cache the new rate */
-	dev->clkin_freq = clk_get_rate_scaled(cnd->new_rate, dev->clkscale);
+	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
 
 	return NOTIFY_OK;
 }
@@ -467,6 +467,7 @@ static int admv1014_probe(struct spi_device *spi)
 	struct iio_dev *indio_dev;
 	struct regmap *regmap;
 	struct admv1014_dev *dev;
+	struct clock_scale dev_clkscale;
 	int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
@@ -509,7 +510,9 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	of_clk_get_scale(spi->dev.of_node, "lo_in", dev->clkscale);
+	of_clk_get_scale(spi->dev.of_node, "lo_in", &dev_clkscale);
+
+	dev->clkscale = &dev_clkscale;
 
 	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, dev->clkscale);
 	dev->nb.notifier_call = admv1014_freq_change;
@@ -527,6 +530,8 @@ static int admv1014_probe(struct spi_device *spi)
 	// 	dev_err(&spi->dev, "admv1014 init failed\n");
 	// 	return ret;
 	// }
+
+	dev_info(&spi->dev, "ADMV1014 PROBED");
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
