@@ -78,7 +78,7 @@
 #define ADMV1014_QUAD_FILTERS(x)         	FIELD_PREP(ADMV1014_QUAD_FILTERS_MSK, x)
 
 
-/* ADMV1014_LO_AMP_PHASE_ADJUST1 Map */
+/* ADMV1014_REG_LO_AMP_PHASE_ADJUST1 Map */
 #define ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK	GENMASK(15, 9)
 #define ADMV1014_LOAMP_PH_ADJ_I_FINE(x)        	FIELD_PREP(ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK, x)
 #define ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK	GENMASK(8, 2)
@@ -226,6 +226,14 @@ enum admv1014_iio_dev_attr {
 	IF_AMP_FINE_GAIN_Q,
 	LOAMP_PH_ADJ_I_FINE,
 	LOAMP_PH_ADJ_Q_FINE,
+	IBIAS_PD,
+	P1DB_COMPENSATION,
+	IF_AMP_PD,
+	QUAD_BG_PD,
+	BB_AMP_PD,
+	QUAD_IBIAS_PD,
+	DET_EN,
+	BG_PD
 };
 
 static ssize_t admv1014_store(struct device *device,
@@ -273,6 +281,46 @@ static ssize_t admv1014_store(struct device *device,
 		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
 		val = ADMV1014_LOAMP_PH_ADJ_Q_FINE(val);
+		break;
+	case IBIAS_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_IBIAS_PD_MSK;
+		val = ADMV1014_IBIAS_PD(val);
+		break;
+	case P1DB_COMPENSATION:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_P1DB_COMPENSATION_MSK;
+		val = ADMV1014_P1DB_COMPENSATION(val);
+		break;
+	case IF_AMP_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_IF_AMP_PD_MSK;
+		val = ADMV1014_IF_AMP_PD(val);
+		break;
+	case QUAD_BG_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_QUAD_BG_PD_MSK;
+		val = ADMV1014_QUAD_BG_PD(val);
+		break;
+	case BB_AMP_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_BB_AMP_PD_MSK;
+		val = ADMV1014_BB_AMP_PD(val);
+		break;
+	case QUAD_IBIAS_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_QUAD_IBIAS_PD_MSK;
+		val = ADMV1014_QUAD_IBIAS_PD(val);
+		break;
+	case DET_EN:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_DET_EN_MSK;
+		val = ADMV1014_DET_EN(val);
+		break;
+	case BG_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_BG_PD_MSK;
+		val = ADMV1014_BG_PD(val);
 		break;
 	default:
 		return -EINVAL;
@@ -325,6 +373,46 @@ static ssize_t admv1014_show(struct device *device,
 		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
 		data_shift = 2;
 		break;
+	case IBIAS_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_IBIAS_PD_MSK;
+		data_shift = 14;
+		break;
+	case P1DB_COMPENSATION:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_P1DB_COMPENSATION_MSK;
+		data_shift = 12;
+		break;
+	case IF_AMP_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_IF_AMP_PD_MSK;
+		data_shift = 11;
+		break;
+	case QUAD_BG_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_QUAD_BG_PD_MSK;
+		data_shift = 9;
+		break;
+	case BB_AMP_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_BB_AMP_PD_MSK;
+		data_shift = 8;
+		break;
+	case QUAD_IBIAS_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_QUAD_IBIAS_PD_MSK;
+		data_shift = 7;
+		break;
+	case DET_EN:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_DET_EN_MSK;
+		data_shift = 6;
+		break;
+	case BG_PD:
+		reg = ADMV1014_REG_ENABLE;
+		mask = ADMV1014_BG_PD_MSK;
+		data_shift = 5;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -368,6 +456,45 @@ static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
 		       admv1014_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
+static IIO_DEVICE_ATTR(ibias_pd, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       IBIAS_PD);
+
+static IIO_DEVICE_ATTR(p1db_compensation, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       P1DB_COMPENSATION);
+
+static IIO_DEVICE_ATTR(if_amp_pd, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       IF_AMP_PD);
+
+static IIO_DEVICE_ATTR(quad_bg_pd, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       QUAD_BG_PD);
+
+static IIO_DEVICE_ATTR(bb_amp_pd, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       BB_AMP_PD);
+
+static IIO_DEVICE_ATTR(quad_ibias_pd, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       QUAD_IBIAS_PD);
+
+static IIO_DEVICE_ATTR(det_en, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       DET_EN);
+
+static IIO_DEVICE_ATTR(bg_pd, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       BG_PD);
 
 static struct attribute *admv1014_attributes[] = {
 	&iio_dev_attr_if_amp_coarse_gain_i.dev_attr.attr,
@@ -376,6 +503,14 @@ static struct attribute *admv1014_attributes[] = {
 	&iio_dev_attr_if_amp_fine_gain_q.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
+	&iio_dev_attr_ibias_pd.dev_attr.attr,
+	&iio_dev_attr_p1db_compensation.dev_attr.attr,
+	&iio_dev_attr_if_amp_pd.dev_attr.attr,
+	&iio_dev_attr_quad_bg_pd.dev_attr.attr,
+	&iio_dev_attr_bb_amp_pd.dev_attr.attr,
+	&iio_dev_attr_quad_ibias_pd.dev_attr.attr,
+	&iio_dev_attr_det_en.dev_attr.attr,
+	&iio_dev_attr_bg_pd.dev_attr.attr,
 	NULL
 };
 
