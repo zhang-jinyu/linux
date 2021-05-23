@@ -63,7 +63,7 @@
 #define ADMV1014_QUAD_BG_PD_MSK			BIT(9)
 #define ADMV1014_QUAD_BG_PD(x)         		FIELD_PREP(ADMV1014_QUAD_BG_PD_MSK, x)
 #define ADMV1014_BB_AMP_PD_MSK			BIT(8)
-#define ADMV1014_BB_AMP_PD x)         		FIELD_PREP(ADMV1014_BB_AMP_PD_MSK, x)
+#define ADMV1014_BB_AMP_PD(x)         		FIELD_PREP(ADMV1014_BB_AMP_PD_MSK, x)
 #define ADMV1014_QUAD_IBIAS_PD_MSK		BIT(7)
 #define ADMV1014_QUAD_IBIAS_PD(x)         	FIELD_PREP(ADMV1014_QUAD_IBIAS_PD_MSK, x)
 #define ADMV1014_DET_EN_MSK			BIT(6)
@@ -118,8 +118,6 @@
 #define ADMV1014_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
 #define ADMV1014_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
 
-#define ADMV1014_MAX_SPI_READ 3
-#define ADMV1014_SPI_READ_BUFFER_SIZE (ADMV1014_MAX_SPI_READ + 1)
 
 enum supported_parts {
 	ADMV1014,
@@ -147,76 +145,90 @@ static void check_parity(u32 input, u32 *count)
 	*count = i;
 }
 
-static int admv1014_regmap_spi_read(void *context,
-				  const void *reg, size_t reg_size,
-				  void *val, size_t val_size)
+static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
+			      unsigned int *val)
 {
-	struct device *dev = context;
-	struct spi_device *spi = to_spi_device(dev);
-	u8 result[ADMV1014_SPI_READ_BUFFER_SIZE];
+	int ret;
+	unsigned int cnt, p_bit, data;
 
-	if (val_size > ADMV1014_MAX_SPI_READ)
-		return -EINVAL;
+	ret = regmap_read(dev->regmap, reg, &data);
+	if (ret < 0)
+		return ret;
 
-	return spi_write_then_read(spi, reg, 1, result, val_size + 1);
-	// TODO: Bit shifting and parity check
-}
-
-static int admv1014_regmap_spi_write(void *context, const void *data,
-				   size_t count)
-{
-	struct device *device = context;
-	struct spi_device *spi = to_spi_device(device);
-	struct iio_dev *indio_dev = dev_to_iio_dev(device);
-	struct admv1014_dev *dev = iio_priv(indio_dev);
-	u32 cnt, *buf;
-
-	buf = data;
-	*buf <<= 1;
+	data = (reg << 17) | data;
 
 	if (dev->parity_en)
 	{
-		check_parity(*buf, &cnt);
+		check_parity(data, &cnt);
+		p_bit = data & 0x1;
 
-		if (cnt % 2 == 0)
-			*buf |= 0x1;
+		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
+			return -EINVAL;
 	}
 
-	return spi_write(spi, buf, count);
+	*val = (data >> 1) & 0xFF;
+
+	return ret;
 }
 
-static int admv1014_regmap_spi_update_bits(void *context, unsigned int reg,
+static int admv1014_spi_write(struct admv1014_dev *dev,
+				      unsigned int reg,
+				      unsigned int val)
+{
+	unsigned int cnt;
+
+	val = (val << 1);
+
+	if (dev->parity_en)
+	{
+		check_parity(val, &cnt);
+
+		if (cnt % 2 == 0)
+			val |= 0x1;
+	}
+
+	return regmap_write(dev->regmap, reg, val);
+}
+
+static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 			       unsigned int mask, unsigned int val)
 {
-	struct device *device = context;
-	struct iio_dev *indio_dev = dev_to_iio_dev(device);
-	struct admv1014_dev *dev = iio_priv(indio_dev);
-	u32 data, temp;
-	int status;
+	int ret;
+	unsigned int data, temp;
 
-	status = regmap_read(dev->regmap, reg, &data);
-	if (status < 0)
-		return status;
+	ret = admv1014_spi_read(dev, reg, &data);
+	if (ret < 0)
+		return ret;
 
 	temp = data & ~mask;
 	temp |= val & mask;
 
-	return regmap_write(dev->regmap, reg, temp);
+	return admv1014_spi_write(dev, reg, temp);
+}
+
+static int admv1014_update_quad_filters(struct admv1014_dev *dev)
+{
+	unsigned int filt_raw;
+
+	if (dev->clkin_freq <= 6600000000 && dev->clkin_freq <= 9200000000)
+		filt_raw = 5;
+	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 8000000000)
+		filt_raw = 10;
+	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 7000000000)
+		filt_raw = 15;
+	else
+		filt_raw = 0;
+
+	return admv1014_spi_update_bits(dev, ADMV1014_REG_QUAD,
+					ADMV1014_QUAD_FILTERS_MSK,
+					ADMV1014_QUAD_FILTERS(filt_raw));
 }
 
 static const struct regmap_config admv1014_regmap_config = {
-	.reg_bits = 8,
-	.val_bits = 16,
-	.read_flag_mask = BIT(7),
+	.reg_bits = 7,
+	.val_bits = 17,
+	.read_flag_mask = BIT(6),
 	.max_register = 0x0B,
-};
-
-static struct regmap_bus admv1014_regmap_bus = {
-	.read = admv1014_regmap_spi_read,
-	.write = admv1014_regmap_spi_write,
-	.reg_update_bits = admv1014_regmap_spi_update_bits,
-	.read_flag_mask = BIT(7),
-	.max_raw_read = ADMV1014_MAX_SPI_READ,
 };
 
 enum admv1014_iio_dev_attr {
@@ -326,7 +338,7 @@ static ssize_t admv1014_store(struct device *device,
 		return -EINVAL;
 	}
 
-	ret = regmap_update_bits(dev->regmap, reg, mask, val);
+	ret = admv1014_spi_update_bits(dev, reg, mask, val);
 
 	return ret ? ret : len;
 }
@@ -417,7 +429,7 @@ static ssize_t admv1014_show(struct device *device,
 		return -EINVAL;
 	}
 
-	ret = regmap_read(dev->regmap, reg, &val);
+	ret = admv1014_spi_read(dev, reg, &val);
 	if (ret < 0)
 		return ret;
 
@@ -526,9 +538,9 @@ static int admv1014_reg_access(struct iio_dev *indio_dev,
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 
 	if (read_val)
-		return regmap_read(dev->regmap, reg, read_val);
+		return admv1014_spi_read(dev, reg, read_val);
 	else
-		return regmap_write(dev->regmap, reg, write_val);
+		return admv1014_spi_write(dev, reg, write_val);
 }
 
 static const struct iio_info admv1014_info = {
@@ -540,9 +552,13 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 {
 	struct admv1014_dev *dev = container_of(nb, struct admv1014_dev, nb);
 	struct clk_notifier_data *cnd = data;
-
+	int ret;
 	/* cache the new rate */
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
+
+	ret = admv1014_update_quad_filters(dev);
+	if(ret < 0)
+		return ret;
 
 	return NOTIFY_OK;
 }
@@ -560,23 +576,23 @@ static int admv1014_init(struct admv1014_dev *dev)
 	u32 chip_id;
 
 	/* Perform a software reset */
-	ret = regmap_update_bits(dev->regmap, ADMV1014_REG_SPI_CONTROL,
+	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_SPI_SOFT_RESET_MSK,
 				 ADMV1014_SPI_SOFT_RESET(1));
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_write(dev->regmap, ADMV1014_REG_VVA_TEMP_COMP, 0x727C);
+	ret = admv1014_spi_write(dev, ADMV1014_REG_VVA_TEMP_COMP, 0x727C);
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_update_bits(dev->regmap, ADMV1014_REG_ENABLE,
+	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE,
 				 ADMV1014_P1DB_COMPENSATION_MSK,
 				 ADMV1014_P1DB_COMPENSATION(3));
 	if (ret < 0)
 		return ret;
 
-	ret = regmap_read(dev->regmap, ADMV1014_REG_SPI_CONTROL, &chip_id);
+	ret = admv1014_spi_read(dev, ADMV1014_REG_SPI_CONTROL, &chip_id);
 	if (ret < 0)
 		return ret;
 
@@ -584,10 +600,13 @@ static int admv1014_init(struct admv1014_dev *dev)
 	if (chip_id != ADMV1014_CHIP_ID)
 		return -EINVAL;
 
-	return regmap_update_bits(dev->regmap, ADMV1014_REG_QUAD,
+	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_QUAD,
 				 ADMV1014_QUAD_SE_MODE_MSK,
 				 ADMV1014_QUAD_SE_MODE(dev->quad_se_mode));
+	if (ret < 0)
+		return ret;
 
+	return admv1014_update_quad_filters(dev);
 }
 
 static void admv1014_clk_disable(void *data)
@@ -609,8 +628,7 @@ static int admv1014_probe(struct spi_device *spi)
 	if (!indio_dev)
 		return -ENOMEM;
 
-	regmap = devm_regmap_init(&spi->dev, &admv1014_regmap_bus,
-				  &spi->dev, &admv1014_regmap_config);
+	regmap = devm_regmap_init_spi(spi, &admv1014_regmap_config);
 	if (IS_ERR(regmap)) {
 		dev_err(&spi->dev, "invalid regmap");
 		return PTR_ERR(regmap);
@@ -660,11 +678,11 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	// ret = admv1014_init(dev);
-	// if (ret < 0) {
-	// 	dev_err(&spi->dev, "admv1014 init failed\n");
-	// 	return ret;
-	// }
+	ret = admv1014_init(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "admv1014 init failed\n");
+		return ret;
+	}
 
 	dev_info(&spi->dev, "ADMV1014 PROBED");
 
