@@ -124,7 +124,6 @@ enum supported_parts {
 };
 
 struct admv1014_dev {
-	struct spi_device 	*spi;
 	struct regmap		*regmap;
 	struct clk 		*clkin;
 	struct clock_scale	*clkscale;
@@ -636,7 +635,6 @@ static int admv1014_probe(struct spi_device *spi)
 
 	dev = iio_priv(indio_dev);
 	dev->regmap = regmap;
-	dev->spi = spi;
 
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
@@ -689,6 +687,15 @@ static int admv1014_probe(struct spi_device *spi)
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
 
+static int admv1014_remove(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+
+	iio_device_unregister(indio_dev);
+
+	return 0;
+}
+
 static const struct spi_device_id admv1014_id[] = {
 	{ "admv1014", ADMV1014 },
 	{}
@@ -707,6 +714,7 @@ static struct spi_driver admv1014_driver = {
 			.of_match_table = admv1014_of_match,
 		},
 	.probe = admv1014_probe,
+	.remove = admv1014_remove,
 	.id_table = admv1014_id,
 };
 module_spi_driver(admv1014_driver);
