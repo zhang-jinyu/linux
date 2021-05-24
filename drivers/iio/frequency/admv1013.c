@@ -562,10 +562,13 @@ static int admv1013_init(struct admv1013_dev *dev)
 	if (ret < 0)
 		return ret;
 
-	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 				 ADMV1013_QUAD_SE_MODE_MSK,
 				 ADMV1013_QUAD_SE_MODE(dev->quad_se_mode));
+	if (ret < 0)
+		return ret;
 
+	return admv1013_update_quad_filters(dev);
 }
 
 static void admv1013_clk_disable(void *data)
