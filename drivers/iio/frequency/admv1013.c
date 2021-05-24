@@ -16,6 +16,7 @@
 #include <linux/module.h>
 #include <linux/notifier.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
 
 #include <linux/iio/sysfs.h>
@@ -106,10 +107,10 @@ enum supported_parts {
 };
 
 struct admv1013_dev {
-	struct spi_device 	*spi;
 	struct regmap		*regmap;
 	struct clk 		*clkin;
 	struct clock_scale	*clkscale;
+	struct regulator	*reg;
 	struct notifier_block	nb;
 	u8			quad_se_mode;
 	u64			clkin_freq;
@@ -526,6 +527,7 @@ static void admv1013_clk_notifier_unreg(void *data)
 static int admv1013_init(struct admv1013_dev *dev)
 {
 	int ret;
+	u32 vcm, mixer_vgate;
 	u32 chip_id;
 
 	/* Perform a software reset */
@@ -546,6 +548,19 @@ static int admv1013_init(struct admv1013_dev *dev)
 	chip_id = (chip_id & ADMV1013_CHIP_ID_MSK) >> 4;
 	if (chip_id != ADMV1013_CHIP_ID)
 		return -EINVAL;
+
+	vcm = regulator_get_voltage(dev->reg);
+
+	if(vcm >= 0 && vcm < 1800000)
+		mixer_vgate = (2389 * vcm / 1000000 + 8100) / 100;
+	else if (vcm > 1800000 && vcm < 2600000)
+		mixer_vgate = (2375 * vcm / 1000000 + 125) / 100;
+	
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
+				 ADMV1013_MIXER_VGATE_MSK,
+				 ADMV1013_MIXER_VGATE(mixer_vgate));
+	if (ret < 0)
+		return ret;
 
 	return admv1013_spi_update_bits(dev, ADMV1013_REG_QUAD,
 				 ADMV1013_QUAD_SE_MODE_MSK,
@@ -580,12 +595,21 @@ static int admv1013_probe(struct spi_device *spi)
 
 	dev = iio_priv(indio_dev);
 	dev->regmap = regmap;
-	dev->spi = spi;
 
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
 		dev_err(&spi->dev, "adi,quad-se-mode property not defined!");
 		return -EINVAL;
+	}
+
+	dev->reg = devm_regulator_get(&spi->dev, "cmv");
+	if (IS_ERR(dev->reg))
+		return PTR_ERR(dev->reg);
+
+	ret = regulator_enable(dev->reg);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Failed to enable specified Common-Mode Voltage!\n");
+		return ret;
 	}
 
 	indio_dev->dev.parent = &spi->dev;
@@ -633,6 +657,18 @@ static int admv1013_probe(struct spi_device *spi)
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
 
+static int admv1013_remove(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct admv1013_dev *dev = iio_priv(indio_dev);
+
+	iio_device_unregister(indio_dev);
+
+	regulator_disable(dev->reg);
+
+	return 0;
+}
+
 static const struct spi_device_id admv1013_id[] = {
 	{ "admv1013", ADMV1013 },
 	{}
@@ -651,6 +687,7 @@ static struct spi_driver admv1013_driver = {
 			.of_match_table = admv1013_of_match,
 		},
 	.probe = admv1013_probe,
+	.remove = admv1013_remove,
 	.id_table = admv1013_id,
 };
 module_spi_driver(admv1013_driver);
