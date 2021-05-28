@@ -104,7 +104,7 @@ enum supported_parts {
 };
 
 struct admv1013_dev {
-	struct regmap		*regmap;
+	struct spi_device	*spi;
 	struct clk 		*clkin;
 	struct clock_scale	*clkscale;
 	struct regulator	*reg;
@@ -112,6 +112,8 @@ struct admv1013_dev {
 	u8			quad_se_mode;
 	u64			clkin_freq;
 	bool			parity_en;
+	bool 			bus_locked;
+	u8			data[3];
 };
 
 static void check_parity(u32 input, u32 *count)
@@ -129,24 +131,35 @@ static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
 			      unsigned int *val)
 {
 	int ret;
-	unsigned int cnt, p_bit, data;
+	unsigned int cnt, p_bit, temp;
+	struct spi_message m;
+	struct spi_transfer t = {0};
 
-	ret = regmap_read(dev->regmap, reg, &data);
-	if (ret < 0)
-		return ret;
+	dev->data[0] = 0x80 | (reg << 1);
 
-	data = (reg << 17) | data;
+	t.rx_buf = dev->data;
+	t.tx_buf = dev->data;
+	t.len = 3;
+
+	spi_message_init_with_transfers(&m, &t, 1);
+
+	if (dev->bus_locked)
+		ret = spi_sync_locked(dev->spi, &m);
+	else
+		ret = spi_sync(dev->spi, &m);
+
+	temp = (dev->data[2] << 16) | (dev->data[1] << 8) | dev->data[0];
 
 	if (dev->parity_en)
 	{
-		check_parity(data, &cnt);
-		p_bit = data & 0x1;
+		check_parity(temp, &cnt);
+		p_bit = temp & 0x1;
 
 		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
 			return -EINVAL;
 	}
 
-	*val = (data >> 1) & 0xFF;
+	*val = (temp >> 1) & 0xFFFF;
 
 	return ret;
 }
@@ -156,18 +169,33 @@ static int admv1013_spi_write(struct admv1013_dev *dev,
 				      unsigned int val)
 {
 	unsigned int cnt;
+	struct spi_message m;
+	struct spi_transfer t = {0};
 
 	val = (val << 1);
 
 	if (dev->parity_en)
 	{
-		check_parity(val, &cnt);
+		check_parity((reg << 17) | val , &cnt);
 
 		if (cnt % 2 == 0)
 			val |= 0x1;
 	}
 
-	return regmap_write(dev->regmap, reg, val);
+	t.tx_buf = dev->data;
+	t.len = 3;
+
+	dev->data[0] = (reg << 1) | (val >> 16);
+	dev->data[1] = val >> 8;
+	dev->data[2] = val;
+
+	spi_message_init(&m);
+	spi_message_add_tail(&t, &m);
+
+	if (dev->bus_locked)
+		return spi_sync_locked(dev->spi, &m);
+
+	return spi_sync(dev->spi, &m);
 }
 
 static int admv1013_spi_update_bits(struct admv1013_dev *dev, unsigned int reg,
@@ -203,13 +231,6 @@ static int admv1013_update_quad_filters(struct admv1013_dev *dev)
 					ADMV1013_QUAD_FILTERS_MSK,
 					ADMV1013_QUAD_FILTERS(filt_raw));
 }
-
-static const struct regmap_config admv1013_regmap_config = {
-	.reg_bits = 7,
-	.val_bits = 17,
-	.read_flag_mask = BIT(7),
-	.max_register = 0x0B,
-};
 
 enum admv1013_iio_dev_attr {
 	MIXER_OFF_ADJ_I_P,
@@ -486,11 +507,22 @@ static int admv1013_reg_access(struct iio_dev *indio_dev,
 				unsigned int *read_val)
 {
 	struct admv1013_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	mutex_lock(&indio_dev->mlock);
+	spi_bus_lock(dev->spi->master);
+	dev->bus_locked = true;
 
 	if (read_val)
-		return admv1013_spi_read(dev, reg, read_val);
+		ret = admv1013_spi_read(dev, reg, read_val);
 	else
-		return admv1013_spi_write(dev, reg, write_val);
+		ret = admv1013_spi_write(dev, reg, write_val);
+
+	dev->bus_locked = false;
+	spi_bus_unlock(dev->spi->master);
+	mutex_unlock(&indio_dev->mlock);
+
+	return ret;
 }
 
 static const struct iio_info admv1013_info = {
@@ -531,6 +563,12 @@ static int admv1013_init(struct admv1013_dev *dev)
 	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
 				 ADMV1013_SPI_SOFT_RESET_MSK,
 				 ADMV1013_SPI_SOFT_RESET(1));
+	if (ret < 0)
+		return ret;
+	
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
+				 ADMV1013_PARITY_EN_MSK,
+				 ADMV1013_PARITY_EN(dev->parity_en));
 	if (ret < 0)
 		return ret;
 
@@ -578,7 +616,6 @@ static void admv1013_clk_disable(void *data)
 static int admv1013_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
-	struct regmap *regmap;
 	struct admv1013_dev *dev;
 	struct clock_scale dev_clkscale;
 	int ret;
@@ -587,20 +624,15 @@ static int admv1013_probe(struct spi_device *spi)
 	if (!indio_dev)
 		return -ENOMEM;
 
-	regmap = devm_regmap_init_spi(spi, &admv1013_regmap_config);
-	if (IS_ERR(regmap)) {
-		dev_err(&spi->dev, "invalid regmap");
-		return PTR_ERR(regmap);
-	}
-
 	dev = iio_priv(indio_dev);
-	dev->regmap = regmap;
 
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
 		dev_err(&spi->dev, "adi,quad-se-mode property not defined!");
 		return -EINVAL;
 	}
+
+	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-enable");
 
 	dev->reg = devm_regulator_get(&spi->dev, "cmv");
 	if (IS_ERR(dev->reg))
@@ -615,6 +647,8 @@ static int admv1013_probe(struct spi_device *spi)
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1013_info;
 	indio_dev->name = "admv1013";
+
+	dev->spi = spi;
 
 	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
 	if (IS_ERR(dev->clkin)) {
@@ -646,13 +680,13 @@ static int admv1013_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1013_init(dev);
-	if (ret < 0) {
-		dev_err(&spi->dev, "admv1013 init failed\n");
-		return ret;
-	}
+	// ret = admv1013_init(dev);
+	// if (ret < 0) {
+	// 	dev_err(&spi->dev, "admv1013 init failed\n");
+	// 	return ret;
+	// }
 
-	dev_info(&spi->dev, "ADMV1013 PROBED");
+	// dev_info(&spi->dev, "ADMV1013 PROBED");
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
