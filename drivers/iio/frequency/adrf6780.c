@@ -99,6 +99,107 @@
 #define ADRF6780_ADC_VALUE_MSK     		GENMASK(7, 0)
 #define ADRF6780_ADC_VALUE(x)      		FIELD_PREP(ADRF6780_ADC_VALUE_MSK, x)
 
+enum supported_parts {
+	ADRF6780,
+};
+
+struct adrf6780_dev {
+	struct spi_device	*spi;
+	struct clk 		*clkin;
+	struct clock_scale	*clkscale;
+	struct notifier_block	nb;
+	u8			quad_se_mode;
+	u64			clkin_freq;
+	bool			parity_en;
+	bool 			bus_locked;
+	u8			data[3];
+};
+
+static void check_parity(u32 input, u32 *count)
+{
+	u32 i = 0;
+	while(input) {
+		i += input & 1;
+		input >>= 1;
+	}
+
+	*count = i;
+}
+
+static int adrf6780_spi_read(struct adrf6780_dev *dev, unsigned int reg,
+			      unsigned int *val)
+{
+	int ret;
+	unsigned int cnt, p_bit, temp;
+	struct spi_message m;
+	struct spi_transfer t = {0};
+
+	dev->data[0] = 0x80 | (reg << 1);
+
+	t.rx_buf = dev->data;
+	t.tx_buf = dev->data;
+	t.len = 3;
+
+	spi_message_init_with_transfers(&m, &t, 1);
+
+	if (dev->bus_locked)
+		ret = spi_sync_locked(dev->spi, &m);
+	else
+		ret = spi_sync(dev->spi, &m);
+
+	if (ret < 0)
+		return ret;
+
+	temp = (dev->data[2] << 16) | (dev->data[1] << 8) | dev->data[0];
+
+	if (dev->parity_en)
+	{
+		check_parity(temp, &cnt);
+		p_bit = temp & 0x1;
+
+		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
+			return -EINVAL;
+	}
+
+	*val = (temp >> 1) & 0xFFFF;
+
+	return ret;
+}
+
+static int adrf6780_spi_write(struct adrf6780_dev *dev,
+				      unsigned int reg,
+				      unsigned int val)
+{
+	unsigned int cnt;
+	struct spi_message m;
+	struct spi_transfer t = {0};
+
+	val = (val << 1);
+
+	if (dev->parity_en)
+	{
+		check_parity((reg << 17) | val , &cnt);
+
+		if (cnt % 2 == 0)
+			val |= 0x1;
+	}
+
+	t.tx_buf = dev->data;
+	t.len = 3;
+
+	dev->data[0] = (reg << 1) | (val >> 16);
+	dev->data[1] = val >> 8;
+	dev->data[2] = val;
+
+	spi_message_init(&m);
+	spi_message_add_tail(&t, &m);
+
+	if (dev->bus_locked)
+		return spi_sync_locked(dev->spi, &m);
+
+	return spi_sync(dev->spi, &m);
+}
+
 MODULE_AUTHOR("Antoniu Miclaus <antoniu.miclaus@analog.com");
 MODULE_DESCRIPTION("Analog Devices ADRF6780");
 MODULE_LICENSE("GPL v2");
