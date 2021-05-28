@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+# Copyright 2022 Analog Devices Inc.
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/bindings/iio/adc/adi,ad4630.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Analog Devices AD4630 ADC family device driver
+
+maintainers:
+  - Sergiu Cuciurean <sergiu.cuciurean@analog.com>
+
+description: |
+  Analog Devices AD4630 Dual Channel Precision SAR ADC family
+
+properties:
+  compatible:
+    enum:
+      - adi,ad4630-24
+      - adi,ad4030-24
+
+  reg:
+    description:
+      SPI chip select number for the device
+    maxItems: 1
+
+  vref-supply:
+    description:
+      Voltage regulator used as full scale voltage refecernce by the ADC.
+
+  reset-gpios:
+    description:
+      Gpio tied to the reset pin of the ADC.
+
+  dmas:
+    description:
+      DMA controller used to store the data received over spi in buffered mode.
+
+  dma-names:
+    description:
+      DMA controller name
+    const: "rx"
+
+  pwms:
+    description:
+      The ADC needs a periodic trigger signal in order to achieve continuous
+      sampling. This pwm handle is used to configure the external trigger and
+      to start the conversion.
+
+required:
+  - compatible
+  - reg
+  - vref-supply
+  - reset-gpios
+  - dmas
+  - pwms
+
+examples:
+  - |
+    adc@0 {
+      compatible = "adi,ad463x";
+      reg = <0>;
+      vref-supply = <&vref>;
+      reset-gpios = <&gpio 1 GPIO_ACTIVE_LOW>;
+      dmas = <&dma 0>;
+      dma-names = "rx";
+      pwms = <&pwm 0 10000>;
+      spi-max-frequency = <80000000>;
+    };
