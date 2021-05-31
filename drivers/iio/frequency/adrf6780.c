@@ -11,6 +11,7 @@
 #include <linux/clkdev.h>
 #include <linux/clk/clkscale.h>
 #include <linux/clk-provider.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
@@ -94,7 +95,7 @@
 #define ADRF6780_ADC_CLOCK_EN(x)      		FIELD_PREP(ADRF6780_ADC_CLOCK_EN_MSK, x)
 
 /* ADRF6780_REG_ADC_OUTPUT Map */
-#define ADRF6780_ADC_STATUS_MSK     		BIT(1)
+#define ADRF6780_ADC_STATUS_MSK     		BIT(8)
 #define ADRF6780_ADC_STATUS(x)  		FIELD_PREP(ADRF6780_ADC_STATUS_MSK, x)
 #define ADRF6780_ADC_VALUE_MSK     		GENMASK(7, 0)
 #define ADRF6780_ADC_VALUE(x)      		FIELD_PREP(ADRF6780_ADC_VALUE_MSK, x)
@@ -214,6 +215,65 @@ static int adrf6780_spi_update_bits(struct adrf6780_dev *dev, unsigned int reg,
 	temp |= val & mask;
 
 	return adrf6780_spi_write(dev, reg, temp);
+}
+
+static int adrf6780_read_raw(struct iio_dev *indio_dev,
+			    struct iio_chan_spec const *chan,
+			    int *val, int *val2, long info)
+{
+	struct adrf6780_dev *dev = iio_priv(indio_dev);
+	unsigned int temp;
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_RAW:
+		ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_ENABLE,
+						ADRF6780_DETECTOR_EN_MSK,
+						ADRF6780_DETECTOR_EN(1));
+		if (ret < 0)
+			return ret;
+
+		ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_ADC_CONTROL,
+						ADRF6780_ADC_EN_MSK,
+						ADRF6780_ADC_EN(1));
+		if (ret < 0)
+			return ret;
+		
+		ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_ADC_CONTROL,
+						ADRF6780_ADC_CLOCK_EN_MSK,
+						ADRF6780_ADC_CLOCK_EN(1));
+		if (ret < 0)
+			return ret;
+		
+		ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_ADC_CONTROL,
+						ADRF6780_ADC_START_MSK,
+						ADRF6780_ADC_START(1));
+		if (ret < 0)
+			return ret;
+
+		udelay(200);
+
+		ret = adrf6780_spi_read(dev, ADRF6780_REG_ADC_OUTPUT, &temp);
+		if (ret < 0)
+			return ret;
+
+		if (!(temp & ADRF6780_ADC_STATUS_MSK))
+			return -EINVAL;
+		
+		ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_ADC_CONTROL,
+						ADRF6780_ADC_START_MSK,
+						ADRF6780_ADC_START(0));
+		
+		ret = adrf6780_spi_read(dev, ADRF6780_REG_ADC_OUTPUT, &temp);
+		if (ret < 0)
+			return ret;
+		
+		*val = temp & ADRF6780_ADC_VALUE_MSK;
+
+		return IIO_VAL_INT;
+	default:
+		return -EINVAL;
+	}
 }
 
 enum adrf6780_iio_dev_attr {
@@ -520,6 +580,7 @@ static int adrf6780_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info adrf6780_info = {
+	.read_raw = adrf6780_read_raw,
 	.debugfs_reg_access = &adrf6780_reg_access,
 	.attrs = &adrf6780_attribute_group,
 };
@@ -528,7 +589,6 @@ static int adrf6780_freq_change(struct notifier_block *nb, unsigned long flags, 
 {
 	struct adrf6780_dev *dev = container_of(nb, struct adrf6780_dev, nb);
 	struct clk_notifier_data *cnd = data;
-	int ret;
 
 	/* cache the new rate */
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
@@ -543,10 +603,21 @@ static void adrf6780_clk_notifier_unreg(void *data)
 	clk_notifier_unregister(dev->clkin, &dev->nb);
 }
 
+#define ADRF6780_CHAN(_channel) {			\
+	.type = IIO_VOLTAGE,				\
+	.output = 1,					\
+	.indexed = 1,					\
+	.channel = _channel,				\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW)	\
+}
+
+static const struct iio_chan_spec adrf6780_channels[] = {
+	ADRF6780_CHAN(0),
+};
+
 static int adrf6780_init(struct adrf6780_dev *dev)
 {
 	int ret;
-	u32 vcm, mixer_vgate;
 	u32 chip_id;
 
 	/* Perform a software reset */
@@ -580,7 +651,6 @@ static void adrf6780_clk_disable(void *data)
 	clk_disable_unprepare(dev->clkin);
 }
 
-
 static int adrf6780_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
@@ -599,6 +669,8 @@ static int adrf6780_probe(struct spi_device *spi)
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &adrf6780_info;
 	indio_dev->name = "adrf6780";
+	indio_dev->channels = adrf6780_channels;
+	indio_dev->num_channels = ARRAY_SIZE(adrf6780_channels);
 
 	dev->spi = spi;
 
@@ -639,7 +711,6 @@ static int adrf6780_probe(struct spi_device *spi)
 static int adrf6780_remove(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev = spi_get_drvdata(spi);
-	struct adrf6780_dev *dev = iio_priv(indio_dev);
 
 	iio_device_unregister(indio_dev);
 
