@@ -200,7 +200,475 @@ static int adrf6780_spi_write(struct adrf6780_dev *dev,
 	return spi_sync(dev->spi, &m);
 }
 
+static int adrf6780_spi_update_bits(struct adrf6780_dev *dev, unsigned int reg,
+			       unsigned int mask, unsigned int val)
+{
+	int ret;
+	unsigned int data, temp;
+
+	ret = adrf6780_spi_read(dev, reg, &data);
+	if (ret < 0)
+		return ret;
+
+	temp = data & ~mask;
+	temp |= val & mask;
+
+	return adrf6780_spi_write(dev, reg, temp);
+}
+
+enum adrf6780_iio_dev_attr {
+	RDAC_LINEARIZE,
+	Q_PATH_PHASE_ACCURACY,
+	I_PATH_PHASE_ACCURACY,
+	LO_SIDEBAND,
+	VGA_BUFFER_ENABLE,
+	DETECTOR_ENABLE ,
+	LO_BUFFER_ENABLE,
+	IF_MODE_ENABLE,
+	IQ_MODE_ENABLE,
+	LO_X2_ENABLE,
+	LO_PPF_ENABLE,
+	LO_ENABLE,
+	UC_BIAS_ENABLE
+};
+
+static ssize_t adrf6780_store(struct device *device,
+			      struct device_attribute *attr,
+			      const char *buf, size_t len)
+{
+	struct iio_dev *indio_dev = dev_to_iio_dev(device);
+	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
+	struct adrf6780_dev *dev = iio_priv(indio_dev);
+	u16 mask = 0, val = 0;
+	u8 reg = 0;
+	int ret = 0;
+
+	ret = kstrtou16(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	switch ((u32)this_attr->address) {
+	case RDAC_LINEARIZE:
+		reg = ADRF6780_REG_LINEARIZE;
+		mask = ADRF6780_RDAC_LINEARIZE_MSK;
+		break;
+	case Q_PATH_PHASE_ACCURACY:
+		reg = ADRF6780_REG_LO_PATH;
+		mask = ADRF6780_Q_PATH_PHASE_ACCURACY_MSK;
+		val = ADRF6780_Q_PATH_PHASE_ACCURACY(val);
+		break;
+	case I_PATH_PHASE_ACCURACY:
+		reg = ADRF6780_REG_LO_PATH;
+		mask = ADRF6780_I_PATH_PHASE_ACCURACY_MSK;
+		val = ADRF6780_I_PATH_PHASE_ACCURACY(val);
+		break;
+	case LO_SIDEBAND:
+		reg = ADRF6780_REG_LO_PATH;
+		mask = ADRF6780_LO_SIDEBAND_MSK;
+		val = ADRF6780_LO_SIDEBAND(val);
+		break;
+	case VGA_BUFFER_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_VGA_BUFFER_EN_MSK;
+		val = ADRF6780_VGA_BUFFER_EN(val);
+		break;
+	case DETECTOR_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_DETECTOR_EN_MSK;
+		val = ADRF6780_DETECTOR_EN(val);
+		break;
+	case LO_BUFFER_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_BUFFER_EN_MSK;
+		val = ADRF6780_LO_BUFFER_EN(val);
+		break;
+	case IF_MODE_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_IF_MODE_EN_MSK;
+		val = ADRF6780_IF_MODE_EN(val);
+		break;
+	case IQ_MODE_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_IQ_MODE_EN_MSK;
+		val = ADRF6780_IQ_MODE_EN(val);
+		break;
+	case LO_X2_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_X2_EN_MSK;
+		val = ADRF6780_LO_X2_EN(val);
+		break;
+	case LO_PPF_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_PPF_EN_MSK;
+		val = ADRF6780_LO_PPF_EN(val);
+		break;
+	case LO_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_EN_MSK;
+		val = ADRF6780_LO_EN(val);
+		break;
+	case UC_BIAS_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_UC_BIAS_EN_MSK;
+		val = ADRF6780_UC_BIAS_EN(val);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = adrf6780_spi_update_bits(dev, reg, mask, val);
+
+	return ret ? ret : len;
+}
+
+static ssize_t adrf6780_show(struct device *device,
+			struct device_attribute *attr,
+			char *buf)
+{
+	struct iio_dev *indio_dev = dev_to_iio_dev(device);
+	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
+	struct adrf6780_dev *dev = iio_priv(indio_dev);
+	int ret = 0;
+	u16 mask = 0, data_shift = 0;
+	u32 val = 0;
+	u8 reg = 0;
+
+	switch ((u32)this_attr->address) {
+	case RDAC_LINEARIZE:
+		reg = ADRF6780_REG_LINEARIZE;
+		mask = ADRF6780_RDAC_LINEARIZE_MSK;
+		break;
+	case Q_PATH_PHASE_ACCURACY:
+		reg = ADRF6780_REG_LO_PATH;
+		mask = ADRF6780_Q_PATH_PHASE_ACCURACY_MSK;
+		data_shift = 4;
+		break;
+	case I_PATH_PHASE_ACCURACY:
+		reg = ADRF6780_REG_LO_PATH;
+		mask = ADRF6780_I_PATH_PHASE_ACCURACY_MSK;
+		break;
+	case LO_SIDEBAND:
+		reg = ADRF6780_REG_LO_PATH;
+		mask = ADRF6780_LO_SIDEBAND_MSK;
+		data_shift = 10;
+		break;
+	case VGA_BUFFER_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_VGA_BUFFER_EN_MSK;
+		data_shift = 8;
+		break;
+	case DETECTOR_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_DETECTOR_EN_MSK;
+		data_shift = 7;
+		break;
+	case LO_BUFFER_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_BUFFER_EN_MSK;
+		data_shift = 6;
+		break;
+	case IF_MODE_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_IF_MODE_EN_MSK;
+		data_shift = 5;
+		break;
+	case IQ_MODE_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_IQ_MODE_EN_MSK;
+		data_shift = 4;
+		break;
+	case LO_X2_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_X2_EN_MSK;
+		data_shift = 3;
+		break;
+	case LO_PPF_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_PPF_EN_MSK;
+		data_shift = 2;
+		break;
+	case LO_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_LO_EN_MSK;
+		data_shift = 1;
+		break;
+	case UC_BIAS_ENABLE:
+		reg = ADRF6780_REG_ENABLE;
+		mask = ADRF6780_UC_BIAS_EN_MSK;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	ret = adrf6780_spi_read(dev, reg, &val);
+	if (ret < 0)
+		return ret;
+
+	val = (val & mask) >> data_shift;
+
+	return sprintf(buf, "%d\n", val);
+}
+
+static IIO_DEVICE_ATTR(rdac_linearize, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       RDAC_LINEARIZE);
+
+static IIO_DEVICE_ATTR(q_path_phase_accuracy, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       Q_PATH_PHASE_ACCURACY);
+
+static IIO_DEVICE_ATTR(i_path_phase_accuracy, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       I_PATH_PHASE_ACCURACY);
+
+static IIO_DEVICE_ATTR(lo_sideband, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       LO_SIDEBAND);
+
+static IIO_DEVICE_ATTR(vga_buffer_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       VGA_BUFFER_ENABLE);
+
+static IIO_DEVICE_ATTR(detector_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       DETECTOR_ENABLE);
+
+static IIO_DEVICE_ATTR(lo_buffer_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       LO_BUFFER_ENABLE);
+
+static IIO_DEVICE_ATTR(if_mode_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       IF_MODE_ENABLE);
+
+static IIO_DEVICE_ATTR(iq_mode_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       IQ_MODE_ENABLE);
+
+static IIO_DEVICE_ATTR(lo_x2_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       LO_X2_ENABLE);
+
+static IIO_DEVICE_ATTR(lo_ppf_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       LO_PPF_ENABLE);
+
+static IIO_DEVICE_ATTR(lo_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       LO_ENABLE);
+
+static IIO_DEVICE_ATTR(uc_bias_enable, S_IRUGO | S_IWUSR,
+		       adrf6780_show,
+		       adrf6780_store,
+		       UC_BIAS_ENABLE);
+
+static struct attribute *adrf6780_attributes[] = {
+	&iio_dev_attr_rdac_linearize.dev_attr.attr,
+	&iio_dev_attr_q_path_phase_accuracy.dev_attr.attr,
+	&iio_dev_attr_i_path_phase_accuracy.dev_attr.attr,
+	&iio_dev_attr_lo_sideband.dev_attr.attr,
+	&iio_dev_attr_vga_buffer_enable.dev_attr.attr,
+	&iio_dev_attr_detector_enable.dev_attr.attr,
+	&iio_dev_attr_lo_buffer_enable.dev_attr.attr,
+	&iio_dev_attr_if_mode_enable.dev_attr.attr,
+	&iio_dev_attr_iq_mode_enable.dev_attr.attr,
+	&iio_dev_attr_lo_x2_enable.dev_attr.attr,
+	&iio_dev_attr_lo_ppf_enable.dev_attr.attr,
+	&iio_dev_attr_lo_enable.dev_attr.attr,
+	&iio_dev_attr_uc_bias_enable.dev_attr.attr,
+	NULL
+};
+
+static const struct attribute_group adrf6780_attribute_group = {
+	.attrs = adrf6780_attributes,
+};
+
+static int adrf6780_reg_access(struct iio_dev *indio_dev,
+				unsigned int reg,
+				unsigned int write_val,
+				unsigned int *read_val)
+{
+	struct adrf6780_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	mutex_lock(&indio_dev->mlock);
+	spi_bus_lock(dev->spi->master);
+	dev->bus_locked = true;
+
+	if (read_val)
+		ret = adrf6780_spi_read(dev, reg, read_val);
+	else
+		ret = adrf6780_spi_write(dev, reg, write_val);
+
+	dev->bus_locked = false;
+	spi_bus_unlock(dev->spi->master);
+	mutex_unlock(&indio_dev->mlock);
+
+	return ret;
+}
+
+static const struct iio_info adrf6780_info = {
+	.debugfs_reg_access = &adrf6780_reg_access,
+	.attrs = &adrf6780_attribute_group,
+};
+
+static int adrf6780_freq_change(struct notifier_block *nb, unsigned long flags, void *data)
+{
+	struct adrf6780_dev *dev = container_of(nb, struct adrf6780_dev, nb);
+	struct clk_notifier_data *cnd = data;
+	int ret;
+
+	/* cache the new rate */
+	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
+
+	return NOTIFY_OK;
+}
+
+static void adrf6780_clk_notifier_unreg(void *data)
+{
+	struct adrf6780_dev *dev = data;
+
+	clk_notifier_unregister(dev->clkin, &dev->nb);
+}
+
+static int adrf6780_init(struct adrf6780_dev *dev)
+{
+	int ret;
+	u32 vcm, mixer_vgate;
+	u32 chip_id;
+
+	/* Perform a software reset */
+	ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_CONTROL,
+				 ADRF6780_SOFT_RESET_MSK,
+				 ADRF6780_SOFT_RESET(1));
+	if (ret < 0)
+		return ret;
+	
+	ret = adrf6780_spi_update_bits(dev, ADRF6780_REG_CONTROL,
+				 ADRF6780_PARITY_EN_MSK,
+				 ADRF6780_PARITY_EN(dev->parity_en));
+	if (ret < 0)
+		return ret;
+
+	ret = adrf6780_spi_read(dev, ADRF6780_REG_CONTROL, &chip_id);
+	if (ret < 0)
+		return ret;
+
+	chip_id = (chip_id & ADRF6780_CHIP_ID_MSK) >> 4;
+	if (chip_id != ADRF6780_CHIP_ID)
+		return -EINVAL;
+
+	return ret;
+}
+
+static void adrf6780_clk_disable(void *data)
+{
+	struct adrf6780_dev *dev = data;
+
+	clk_disable_unprepare(dev->clkin);
+}
+
+
+static int adrf6780_probe(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev;
+	struct adrf6780_dev *dev;
+	struct clock_scale dev_clkscale;
+	int ret;
+
+	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
+	if (!indio_dev)
+		return -ENOMEM;
+
+	dev = iio_priv(indio_dev);
+
+	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-enable");
+
+	indio_dev->dev.parent = &spi->dev;
+	indio_dev->info = &adrf6780_info;
+	indio_dev->name = "adrf6780";
+
+	dev->spi = spi;
+
+	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
+	if (IS_ERR(dev->clkin)) {
+		return PTR_ERR(dev->clkin);
+	}
+
+	ret = clk_prepare_enable(dev->clkin);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = devm_add_action_or_reset(&spi->dev, adrf6780_clk_disable, dev);
+	if (ret < 0) {
+		return ret;
+	}
+
+	of_clk_get_scale(spi->dev.of_node, "lo_in", &dev_clkscale);
+
+	dev->clkscale = &dev_clkscale;
+
+	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, dev->clkscale);
+	dev->nb.notifier_call = adrf6780_freq_change;
+	ret = clk_notifier_register(dev->clkin, &dev->nb);
+	if (ret)
+		return ret;
+
+	ret = devm_add_action_or_reset(&spi->dev, adrf6780_clk_notifier_unreg, dev);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return devm_iio_device_register(&spi->dev, indio_dev);
+}
+
+
+static int adrf6780_remove(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct adrf6780_dev *dev = iio_priv(indio_dev);
+
+	iio_device_unregister(indio_dev);
+
+	return 0;
+}
+
+static const struct spi_device_id adrf6780_id[] = {
+	{ "adrf6780", ADRF6780 },
+	{}
+};
+MODULE_DEVICE_TABLE(spi, adrf6780_id);
+
+static const struct of_device_id adrf6780_of_match[] = {
+	{ .compatible = "adi,adrf6780" },
+	{},
+};
+MODULE_DEVICE_TABLE(of, adrf6780_of_match);
+
+static struct spi_driver adrf6780_driver = {
+	.driver = {
+			.name = "adrf6780",
+			.of_match_table = adrf6780_of_match,
+		},
+	.probe = adrf6780_probe,
+	.remove = adrf6780_remove,
+	.id_table = adrf6780_id,
+};
+module_spi_driver(adrf6780_driver);
+
 MODULE_AUTHOR("Antoniu Miclaus <antoniu.miclaus@analog.com");
 MODULE_DESCRIPTION("Analog Devices ADRF6780");
 MODULE_LICENSE("GPL v2");
-
