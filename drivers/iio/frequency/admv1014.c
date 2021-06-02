@@ -151,11 +151,14 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 			      unsigned int *val)
 {
 	int ret;
-	unsigned int cnt, p_bit, temp;
+	unsigned int cnt, p_bit;
 	struct spi_message m;
 	struct spi_transfer t = {0};
+	u32 temp;
 
 	dev->data[0] = 0x80 | (reg << 1);
+	dev->data[1] = 0x0;
+	dev->data[2] = 0x0;
 
 	t.rx_buf = dev->data;
 	t.tx_buf = dev->data;
@@ -171,13 +174,15 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 	if (ret < 0)
 		return ret;
 
-	temp = (dev->data[2] << 16) | (dev->data[1] << 8) | dev->data[0];
+	temp = ((dev->data[0] | 0x80 | (reg << 1)) << 16) | 
+		(dev->data[1] << 8) | 
+		dev->data[2];
 
 	if (dev->parity_en)
 	{
 		check_parity(temp, &cnt);
 		p_bit = temp & 0x1;
-
+		printk(KERN_DEBUG "TEMP=%x, CNT_READ=%d, PARITY_BITY=%d", temp, cnt, p_bit);
 		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
 			return -EINVAL;
 	}
@@ -200,7 +205,7 @@ static int admv1014_spi_write(struct admv1014_dev *dev,
 	if (dev->parity_en)
 	{
 		check_parity((reg << 17) | val , &cnt);
-
+		printk(KERN_DEBUG "COUNT=%d", cnt);
 		if (cnt % 2 == 0)
 			val |= 0x1;
 	}
@@ -234,6 +239,8 @@ static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 	temp = data & ~mask;
 	temp |= val & mask;
 
+	printk(KERN_DEBUG "TEMP_UPDATE=%x", temp);
+
 	return admv1014_spi_write(dev, reg, temp);
 }
 
@@ -262,6 +269,8 @@ enum admv1014_iio_dev_attr {
 	IF_AMP_FINE_GAIN_Q,
 	LOAMP_PH_ADJ_I_FINE,
 	LOAMP_PH_ADJ_Q_FINE,
+	MIXER_VGATE,
+	DET_PROG,
 	IBIAS_PD,
 	P1DB_COMPENSATION,
 	IF_AMP_PD,
@@ -317,6 +326,16 @@ static ssize_t admv1014_store(struct device *device,
 		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
 		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
 		val = ADMV1014_LOAMP_PH_ADJ_Q_FINE(val);
+		break;
+	case MIXER_VGATE:
+		reg = ADMV1014_REG_MIXER;
+		mask = ADMV1014_MIXER_VGATE_MSK;
+		val = ADMV1014_MIXER_VGATE(val);
+		break;
+	case DET_PROG:
+		reg = ADMV1014_REG_MIXER;
+		mask = ADMV1014_DET_PROG_MSK;
+		val = ADMV1014_DET_PROG(val);
 		break;
 	case IBIAS_PD:
 		reg = ADMV1014_REG_ENABLE;
@@ -409,6 +428,15 @@ static ssize_t admv1014_show(struct device *device,
 		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
 		data_shift = 2;
 		break;
+	case MIXER_VGATE:
+		reg = ADMV1014_REG_MIXER;
+		mask = ADMV1014_MIXER_VGATE_MSK;
+		data_shift = 9;
+		break;
+	case DET_PROG:
+		reg = ADMV1014_REG_MIXER;
+		mask = ADMV1014_DET_PROG_MSK;
+		break;
 	case IBIAS_PD:
 		reg = ADMV1014_REG_ENABLE;
 		mask = ADMV1014_IBIAS_PD_MSK;
@@ -492,6 +520,16 @@ static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
 		       admv1014_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
+static IIO_DEVICE_ATTR(mixer_vgate, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       MIXER_VGATE);
+
+static IIO_DEVICE_ATTR(det_prog, S_IRUGO | S_IWUSR,
+		       admv1014_show,
+		       admv1014_store,
+		       DET_PROG);
+
 static IIO_DEVICE_ATTR(ibias_pd, S_IRUGO | S_IWUSR,
 		       admv1014_show,
 		       admv1014_store,
@@ -539,6 +577,8 @@ static struct attribute *admv1014_attributes[] = {
 	&iio_dev_attr_if_amp_fine_gain_q.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
 	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
+	&iio_dev_attr_mixer_vgate.dev_attr.attr,
+	&iio_dev_attr_det_prog.dev_attr.attr,
 	&iio_dev_attr_ibias_pd.dev_attr.attr,
 	&iio_dev_attr_p1db_compensation.dev_attr.attr,
 	&iio_dev_attr_if_amp_pd.dev_attr.attr,
@@ -609,14 +649,9 @@ static int admv1014_init(struct admv1014_dev *dev)
 {
 	int ret;
 	u32 chip_id;
+	bool temp_parity = dev->parity_en;
 
-	ret = admv1014_spi_read(dev, ADMV1014_REG_SPI_CONTROL, &chip_id);
-	if (ret < 0)
-		return ret;
-
-	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
-
-	printk(KERN_INFO "ADMV1014_CHIP_ID: %x", chip_id);
+	dev->parity_en = false;
 
 	/* Perform a software reset */
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
@@ -626,10 +661,18 @@ static int admv1014_init(struct admv1014_dev *dev)
 		return ret;
 
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
-				 ADMV1014_PARITY_EN_MSK,
-				 ADMV1014_PARITY_EN(dev->parity_en));
+				 ADMV1014_SPI_SOFT_RESET_MSK,
+				 ADMV1014_SPI_SOFT_RESET(0));
 	if (ret < 0)
 		return ret;
+
+	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
+				 ADMV1014_PARITY_EN_MSK,
+				 ADMV1014_PARITY_EN(temp_parity));
+	if (ret < 0)
+		return ret;
+
+	dev->parity_en = temp_parity;
 
 	ret = admv1014_spi_write(dev, ADMV1014_REG_VVA_TEMP_COMP, 0x727C);
 	if (ret < 0)
@@ -646,6 +689,7 @@ static int admv1014_init(struct admv1014_dev *dev)
 		return ret;
 
 	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
+	printk(KERN_DEBUG "CHIP_ID=%x", chip_id);
 	if (chip_id != ADMV1014_CHIP_ID)
 		return -EINVAL;
 
@@ -722,11 +766,11 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	// ret = admv1014_init(dev);
-	// if (ret < 0) {
-	// 	dev_err(&spi->dev, "admv1014 init failed\n");
-	// 	return ret;
-	// }
+	ret = admv1014_init(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "admv1014 init failed\n");
+		return ret;
+	}
 
 	dev_info(&spi->dev, "ADMV1014 PROBED");
 
