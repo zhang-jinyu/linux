@@ -44,6 +44,7 @@
 				clocks = <&admv1014_lo 3>;
 				clock-names = "lo_in";
 				adi,quad-se-mode = <0>;
+				adi,parity-enable;
 			};
 		};
 	};

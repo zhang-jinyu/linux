@@ -17,7 +17,6 @@
 #include <linux/notifier.h>
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
-#include <linux/kernel.h>
 
 #include <linux/iio/sysfs.h>
 
@@ -119,7 +118,6 @@
 #define ADMV1014_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
 #define ADMV1014_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
 
-
 enum supported_parts {
 	ADMV1014,
 };
@@ -136,9 +134,9 @@ struct admv1014_dev {
 	u8			data[3];
 };
 
-static void check_parity(u32 input, u32 *count)
+static void check_parity(unsigned int input, unsigned int *count)
 {
-	u32 i = 0;
+	unsigned int i = 0;
 	while(input) {
 		i += input & 1;
 		input >>= 1;
@@ -151,10 +149,9 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 			      unsigned int *val)
 {
 	int ret;
-	unsigned int cnt, p_bit;
+	unsigned int cnt, temp;
 	struct spi_message m;
 	struct spi_transfer t = {0};
-	u32 temp;
 
 	dev->data[0] = 0x80 | (reg << 1);
 	dev->data[1] = 0x0;
@@ -181,9 +178,7 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 	if (dev->parity_en)
 	{
 		check_parity(temp, &cnt);
-		p_bit = temp & 0x1;
-		printk(KERN_DEBUG "TEMP=%x, CNT_READ=%d, PARITY_BITY=%d", temp, cnt, p_bit);
-		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
+		if (!(cnt % 2))
 			return -EINVAL;
 	}
 
@@ -205,7 +200,6 @@ static int admv1014_spi_write(struct admv1014_dev *dev,
 	if (dev->parity_en)
 	{
 		check_parity((reg << 17) | val , &cnt);
-		printk(KERN_DEBUG "COUNT=%d", cnt);
 		if (cnt % 2 == 0)
 			val |= 0x1;
 	}
@@ -238,8 +232,6 @@ static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 
 	temp = data & ~mask;
 	temp |= val & mask;
-
-	printk(KERN_DEBUG "TEMP_UPDATE=%x", temp);
 
 	return admv1014_spi_write(dev, reg, temp);
 }
@@ -394,8 +386,8 @@ static ssize_t admv1014_show(struct device *device,
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 	int ret = 0;
+	unsigned int val = 0;
 	u16 mask = 0, data_shift = 0;
-	u32 val = 0;
 	u8 reg = 0;
 
 	switch ((u32)this_attr->address) {
@@ -628,6 +620,7 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 	struct admv1014_dev *dev = container_of(nb, struct admv1014_dev, nb);
 	struct clk_notifier_data *cnd = data;
 	int ret;
+
 	/* cache the new rate */
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
 
@@ -648,7 +641,7 @@ static void admv1014_clk_notifier_unreg(void *data)
 static int admv1014_init(struct admv1014_dev *dev)
 {
 	int ret;
-	u32 chip_id;
+	unsigned int chip_id;
 	bool temp_parity = dev->parity_en;
 
 	dev->parity_en = false;
@@ -659,6 +652,8 @@ static int admv1014_init(struct admv1014_dev *dev)
 				 ADMV1014_SPI_SOFT_RESET(1));
 	if (ret < 0)
 		return ret;
+
+	udelay(200);
 
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_SPI_SOFT_RESET_MSK,
@@ -689,7 +684,6 @@ static int admv1014_init(struct admv1014_dev *dev)
 		return ret;
 
 	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
-	printk(KERN_DEBUG "CHIP_ID=%x", chip_id);
 	if (chip_id != ADMV1014_CHIP_ID)
 		return -EINVAL;
 
@@ -772,18 +766,7 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	dev_info(&spi->dev, "ADMV1014 PROBED");
-
 	return devm_iio_device_register(&spi->dev, indio_dev);
-}
-
-static int admv1014_remove(struct spi_device *spi)
-{
-	struct iio_dev *indio_dev = spi_get_drvdata(spi);
-
-	iio_device_unregister(indio_dev);
-
-	return 0;
 }
 
 static const struct spi_device_id admv1014_id[] = {
@@ -804,7 +787,6 @@ static struct spi_driver admv1014_driver = {
 			.of_match_table = admv1014_of_match,
 		},
 	.probe = admv1014_probe,
-	.remove = admv1014_remove,
 	.id_table = admv1014_id,
 };
 module_spi_driver(admv1014_driver);
