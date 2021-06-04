@@ -22,77 +22,76 @@
 
 /* ADMV1014 Register Map */
 #define ADMV1014_REG_SPI_CONTROL		0x00
-#define ADMV1014_REG_ALARM 			0x01
+#define ADMV1014_REG_ALARM			0x01
 #define ADMV1014_REG_ALARM_MASKS		0x02
 #define ADMV1014_REG_ENABLE			0x03
 #define ADMV1014_REG_QUAD			0x04
 #define ADMV1014_REG_LO_AMP_PHASE_ADJUST1	0x05
-#define ADMV1014_REG_MIXER   			0x07
-#define ADMV1014_REG_IF_AMP  			0x08
+#define ADMV1014_REG_MIXER			0x07
+#define ADMV1014_REG_IF_AMP			0x08
 #define ADMV1014_REG_IF_AMP_BB_AMP		0x09
 #define ADMV1014_REG_BB_AMP_AGC			0x0A
 #define ADMV1014_REG_VVA_TEMP_COMP		0x0B
 
 /* ADMV1014_REG_SPI_CONTROL Map */
-#define ADMV1014_PARITY_EN_MSK       		BIT(15)
-#define ADMV1014_PARITY_EN(x)         		FIELD_PREP(ADMV1014_PARITY_EN_MSK, x)
+#define ADMV1014_PARITY_EN_MSK			BIT(15)
+#define ADMV1014_PARITY_EN(x)			FIELD_PREP(ADMV1014_PARITY_EN_MSK, x)
 #define ADMV1014_SPI_SOFT_RESET_MSK		BIT(14)
-#define ADMV1014_SPI_SOFT_RESET(x)         	FIELD_PREP(ADMV1014_SPI_SOFT_RESET_MSK, x)
+#define ADMV1014_SPI_SOFT_RESET(x)		FIELD_PREP(ADMV1014_SPI_SOFT_RESET_MSK, x)
 #define ADMV1014_CHIP_ID_MSK			GENMASK(11, 4)
-#define ADMV1014_CHIP_ID             		0x9
+#define ADMV1014_CHIP_ID			0x9
 #define ADMV1014_REVISION_ID_MSK		GENMASK(3, 0)
-#define ADMV1014_REVISION_ID(x)        		FIELD_PREP(ADMV1014_REVISION_ID_MSK, x)
+#define ADMV1014_REVISION_ID(x)			FIELD_PREP(ADMV1014_REVISION_ID_MSK, x)
 
 /* ADMV1014_REG_ALARM Map */
-#define ADMV1014_PARITY_ERROR_MSK       	BIT(15)
-#define ADMV1014_PARITY_ERROR(x)         	FIELD_PREP(ADMV1014_PARITY_ERROR_MSK, x)
+#define ADMV1014_PARITY_ERROR_MSK		BIT(15)
+#define ADMV1014_PARITY_ERROR(x)		FIELD_PREP(ADMV1014_PARITY_ERROR_MSK, x)
 #define ADMV1014_TOO_FEW_ERRORS_MSK		BIT(14)
-#define ADMV1014_TOO_FEW_ERRORS(x)         	FIELD_PREP(ADMV1014_TOO_FEW_ERRORS_MSK, x)
+#define ADMV1014_TOO_FEW_ERRORS(x)		FIELD_PREP(ADMV1014_TOO_FEW_ERRORS_MSK, x)
 #define ADMV1014_TOO_MANY_ERRORS_MSK		BIT(13)
-#define ADMV1014_TOO_MANY_ERRORS(x)         	FIELD_PREP(ADMV1014_TOO_MANY_ERRORS_MSK, x)
+#define ADMV1014_TOO_MANY_ERRORS(x)		FIELD_PREP(ADMV1014_TOO_MANY_ERRORS_MSK, x)
 #define ADMV1014_ADDRESS_RANGE_ERROR_MSK	BIT(12)
 #define ADMV1014_ADDRESS_RANGE_ERROR(x)         FIELD_PREP(ADMV1014_ADDRESS_RANGE_ERROR_MSK, x)
 
 /* ADMV1014_REG_ENABLE Map */
-#define ADMV1014_IBIAS_PD_MSK       		BIT(14)
-#define ADMV1014_IBIAS_PD(x)         		FIELD_PREP(ADMV1014_IBIAS_PD_MSK, x)
+#define ADMV1014_IBIAS_PD_MSK			BIT(14)
+#define ADMV1014_IBIAS_PD(x)			FIELD_PREP(ADMV1014_IBIAS_PD_MSK, x)
 #define ADMV1014_P1DB_COMPENSATION_MSK		GENMASK(13, 12)
-#define ADMV1014_P1DB_COMPENSATION(x)         	FIELD_PREP(ADMV1014_P1DB_COMPENSATION_MSK, x)
+#define ADMV1014_P1DB_COMPENSATION(x)		FIELD_PREP(ADMV1014_P1DB_COMPENSATION_MSK, x)
 #define ADMV1014_IF_AMP_PD_MSK			BIT(11)
-#define ADMV1014_IF_AMP_PD(x)         		FIELD_PREP(ADMV1014_IF_AMP_PD_MSK, x)
+#define ADMV1014_IF_AMP_PD(x)			FIELD_PREP(ADMV1014_IF_AMP_PD_MSK, x)
 #define ADMV1014_QUAD_BG_PD_MSK			BIT(9)
-#define ADMV1014_QUAD_BG_PD(x)         		FIELD_PREP(ADMV1014_QUAD_BG_PD_MSK, x)
+#define ADMV1014_QUAD_BG_PD(x)			FIELD_PREP(ADMV1014_QUAD_BG_PD_MSK, x)
 #define ADMV1014_BB_AMP_PD_MSK			BIT(8)
-#define ADMV1014_BB_AMP_PD(x)         		FIELD_PREP(ADMV1014_BB_AMP_PD_MSK, x)
+#define ADMV1014_BB_AMP_PD(x)			FIELD_PREP(ADMV1014_BB_AMP_PD_MSK, x)
 #define ADMV1014_QUAD_IBIAS_PD_MSK		BIT(7)
-#define ADMV1014_QUAD_IBIAS_PD(x)         	FIELD_PREP(ADMV1014_QUAD_IBIAS_PD_MSK, x)
+#define ADMV1014_QUAD_IBIAS_PD(x)		FIELD_PREP(ADMV1014_QUAD_IBIAS_PD_MSK, x)
 #define ADMV1014_DET_EN_MSK			BIT(6)
-#define ADMV1014_DET_EN(x)         		FIELD_PREP(ADMV1014_DET_EN_MSK, x)
+#define ADMV1014_DET_EN(x)			FIELD_PREP(ADMV1014_DET_EN_MSK, x)
 #define ADMV1014_BG_PD_MSK			BIT(5)
-#define ADMV1014_BG_PD(x)         		FIELD_PREP(ADMV1014_BG_PD_MSK, x)
+#define ADMV1014_BG_PD(x)			FIELD_PREP(ADMV1014_BG_PD_MSK, x)
 
 /* ADMV1014_REG_QUAD Map */
 #define ADMV1014_QUAD_SE_MODE_MSK		GENMASK(9, 6)
-#define ADMV1014_QUAD_SE_MODE(x)         	FIELD_PREP(ADMV1014_QUAD_SE_MODE_MSK, x)
+#define ADMV1014_QUAD_SE_MODE(x)		FIELD_PREP(ADMV1014_QUAD_SE_MODE_MSK, x)
 #define ADMV1014_QUAD_FILTERS_MSK		GENMASK(3, 0)
-#define ADMV1014_QUAD_FILTERS(x)         	FIELD_PREP(ADMV1014_QUAD_FILTERS_MSK, x)
-
+#define ADMV1014_QUAD_FILTERS(x)		FIELD_PREP(ADMV1014_QUAD_FILTERS_MSK, x)
 
 /* ADMV1014_REG_LO_AMP_PHASE_ADJUST1 Map */
 #define ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK	GENMASK(15, 9)
-#define ADMV1014_LOAMP_PH_ADJ_I_FINE(x)        	FIELD_PREP(ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK, x)
+#define ADMV1014_LOAMP_PH_ADJ_I_FINE(x)		FIELD_PREP(ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK, x)
 #define ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK	GENMASK(8, 2)
-#define ADMV1014_LOAMP_PH_ADJ_Q_FINE(x)        	FIELD_PREP(ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK, x)
+#define ADMV1014_LOAMP_PH_ADJ_Q_FINE(x)		FIELD_PREP(ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK, x)
 
 /* ADMV1014_REG_MIXER Map */
 #define ADMV1014_MIXER_VGATE_MSK		GENMASK(15, 9)
-#define ADMV1014_MIXER_VGATE(x)        		FIELD_PREP(ADMV1014_MIXER_VGATE_MSK, x)
+#define ADMV1014_MIXER_VGATE(x)			FIELD_PREP(ADMV1014_MIXER_VGATE_MSK, x)
 #define ADMV1014_DET_PROG_MSK			GENMASK(6, 0)
 #define ADMV1014_DET_PROG(x)			FIELD_PREP(ADMV1014_DET_PROG_MSK, x)
 
 /* ADMV1014_REG_IF_AMP Map */
 #define ADMV1014_IF_AMP_COARSE_GAIN_I_MSK	GENMASK(11, 8)
-#define ADMV1014_IF_AMP_COARSE_GAIN_I(x)  	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_I_MSK, x)
+#define ADMV1014_IF_AMP_COARSE_GAIN_I(x)	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_I_MSK, x)
 #define ADMV1014_IF_AMP_FINE_GAIN_Q_MSK		GENMASK(7, 4)
 #define ADMV1014_IF_AMP_FINE_GAIN_Q(x)		FIELD_PREP(ADMV1014_IF_AMP_FINE_GAIN_Q_MSK, x)
 #define ADMV1014_IF_AMP_FINE_GAIN_I_MSK		GENMASK(7, 4)
@@ -100,7 +99,7 @@
 
 /* ADMV1014_REG_IF_AMP_BB_AMP Map */
 #define ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK	GENMASK(15, 12)
-#define ADMV1014_IF_AMP_COARSE_GAIN_Q(x)  	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK, x)
+#define ADMV1014_IF_AMP_COARSE_GAIN_Q(x)	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK, x)
 #define ADMV1014_BB_AMP_OFFSET_Q_MSK		GENMASK(9, 5)
 #define ADMV1014_BB_AMP_OFFSET_Q(x)		FIELD_PREP(ADMV1014_BB_AMP_OFFSET_Q_MSK, x)
 #define ADMV1014_BB_AMP_OFFSET_I_MSK		GENMASK(4, 0)
@@ -108,7 +107,7 @@
 
 /* ADMV1014_REG_BB_AMP_AGC Map */
 #define ADMV1014_BB_AMP_REF_GEN_MSK		GENMASK(6, 3)
-#define ADMV1014_IF_AMP_COARSE_GAIN_Q(x)  	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK, x)
+#define ADMV1014_IF_AMP_COARSE_GAIN_Q(x)	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK, x)
 #define ADMV1014_BB_AMP_GAIN_CTRL_MSK		GENMASK(2, 1)
 #define ADMV1014_BB_AMP_GAIN_CTRL(x)		FIELD_PREP(ADMV1014_BB_AMP_GAIN_CTRL_MSK, x)
 #define ADMV1014_BB_SWITCH_HIGH_LOW_CM_MSK	BIT(0)
@@ -116,7 +115,7 @@
 
 /* ADMV1014_REG_VVA_TEMP_COMP Map */
 #define ADMV1014_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
-#define ADMV1014_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
+#define ADMV1014_VVA_TEMP_COMP(x)		FIELD_PREP(ADMV1014_VVA_TEMP_COMP_MSK, x)
 
 enum supported_parts {
 	ADMV1014,
@@ -124,20 +123,21 @@ enum supported_parts {
 
 struct admv1014_dev {
 	struct spi_device	*spi;
-	struct clk 		*clkin;
+	struct clk		*clkin;
 	struct clock_scale	*clkscale;
 	struct notifier_block	nb;
 	u8			quad_se_mode;
 	u64			clkin_freq;
 	bool			parity_en;
-	bool 			bus_locked;
+	bool			bus_locked;
 	u8			data[3];
 };
 
 static void check_parity(unsigned int input, unsigned int *count)
 {
 	unsigned int i = 0;
-	while(input) {
+
+	while (input) {
 		i += input & 1;
 		input >>= 1;
 	}
@@ -171,12 +171,11 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 	if (ret < 0)
 		return ret;
 
-	temp = ((dev->data[0] | 0x80 | (reg << 1)) << 16) | 
-		(dev->data[1] << 8) | 
+	temp = ((dev->data[0] | 0x80 | (reg << 1)) << 16) |
+		(dev->data[1] << 8) |
 		dev->data[2];
 
-	if (dev->parity_en)
-	{
+	if (dev->parity_en) {
 		check_parity(temp, &cnt);
 		if (!(cnt % 2))
 			return -EINVAL;
@@ -197,9 +196,8 @@ static int admv1014_spi_write(struct admv1014_dev *dev,
 
 	val = (val << 1);
 
-	if (dev->parity_en)
-	{
-		check_parity((reg << 17) | val , &cnt);
+	if (dev->parity_en) {
+		check_parity((reg << 17) | val, &cnt);
 		if (cnt % 2 == 0)
 			val |= 0x1;
 	}
@@ -482,82 +480,82 @@ static ssize_t admv1014_show(struct device *device,
 	return sprintf(buf, "%d\n", val);
 }
 
-static IIO_DEVICE_ATTR(if_amp_coarse_gain_i, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(if_amp_coarse_gain_i, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       IF_AMP_COARSE_GAIN_I);
 
-static IIO_DEVICE_ATTR(if_amp_coarse_gain_q, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(if_amp_coarse_gain_q, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       IF_AMP_COARSE_GAIN_Q);
 
-static IIO_DEVICE_ATTR(if_amp_fine_gain_i, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(if_amp_fine_gain_i, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       IF_AMP_FINE_GAIN_I);
 
-static IIO_DEVICE_ATTR(if_amp_fine_gain_q, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(if_amp_fine_gain_q, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       IF_AMP_FINE_GAIN_Q);
 
-static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       LOAMP_PH_ADJ_I_FINE);
 
-static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
-static IIO_DEVICE_ATTR(mixer_vgate, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_vgate, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       MIXER_VGATE);
 
-static IIO_DEVICE_ATTR(det_prog, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(det_prog, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       DET_PROG);
 
-static IIO_DEVICE_ATTR(ibias_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(ibias_pd, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       IBIAS_PD);
 
-static IIO_DEVICE_ATTR(p1db_compensation, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(p1db_compensation, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       P1DB_COMPENSATION);
 
-static IIO_DEVICE_ATTR(if_amp_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(if_amp_pd, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       IF_AMP_PD);
 
-static IIO_DEVICE_ATTR(quad_bg_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(quad_bg_pd, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       QUAD_BG_PD);
 
-static IIO_DEVICE_ATTR(bb_amp_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(bb_amp_pd, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       BB_AMP_PD);
 
-static IIO_DEVICE_ATTR(quad_ibias_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(quad_ibias_pd, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       QUAD_IBIAS_PD);
 
-static IIO_DEVICE_ATTR(det_en, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(det_en, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       DET_EN);
 
-static IIO_DEVICE_ATTR(bg_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(bg_pd, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       BG_PD);
@@ -625,7 +623,7 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
 
 	ret = admv1014_update_quad_filters(dev);
-	if(ret < 0)
+	if (ret < 0)
 		return ret;
 
 	return NOTIFY_OK;
@@ -731,19 +729,16 @@ static int admv1014_probe(struct spi_device *spi)
 	dev->spi = spi;
 
 	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
-	if (IS_ERR(dev->clkin)) {
+	if (IS_ERR(dev->clkin))
 		return PTR_ERR(dev->clkin);
-	}
 
 	ret = clk_prepare_enable(dev->clkin);
-	if (ret < 0) {
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_disable, dev);
-	if (ret < 0) {
+	if (ret < 0)
 		return ret;
-	}
 
 	of_clk_get_scale(spi->dev.of_node, "lo_in", &dev_clkscale);
 
@@ -756,9 +751,8 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_notifier_unreg, dev);
-	if (ret < 0) {
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = admv1014_init(dev);
 	if (ret < 0) {
