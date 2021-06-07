@@ -24,81 +24,81 @@
 
 /* ADMV1013 Register Map */
 #define ADMV1013_REG_SPI_CONTROL		0x00
-#define ADMV1013_REG_ALARM 			0x01
+#define ADMV1013_REG_ALARM			0x01
 #define ADMV1013_REG_ALARM_MASKS		0x02
 #define ADMV1013_REG_ENABLE			0x03
 #define ADMV1013_REG_LO_AMP_I			0x05
 #define ADMV1013_REG_LO_AMP_Q			0x06
-#define ADMV1013_REG_OFFSET_ADJUST_I 		0x07
+#define ADMV1013_REG_OFFSET_ADJUST_I		0x07
 #define ADMV1013_REG_OFFSET_ADJUST_Q		0x08
 #define ADMV1013_REG_QUAD			0x09
 #define ADMV1013_REG_VVA_TEMP_COMP		0x0A
 
 /* ADMV1013_REG_SPI_CONTROL Map */
-#define ADMV1013_PARITY_EN_MSK       		BIT(15)
-#define ADMV1013_PARITY_EN(x)         		FIELD_PREP(ADMV1013_PARITY_EN_MSK, x)
+#define ADMV1013_PARITY_EN_MSK			BIT(15)
+#define ADMV1013_PARITY_EN(x)			FIELD_PREP(ADMV1013_PARITY_EN_MSK, x)
 #define ADMV1013_SPI_SOFT_RESET_MSK		BIT(14)
-#define ADMV1013_SPI_SOFT_RESET(x)         	FIELD_PREP(ADMV1013_SPI_SOFT_RESET_MSK, x)
+#define ADMV1013_SPI_SOFT_RESET(x)		FIELD_PREP(ADMV1013_SPI_SOFT_RESET_MSK, x)
 #define ADMV1013_CHIP_ID_MSK			GENMASK(11, 4)
-#define ADMV1013_CHIP_ID             		0xA
+#define ADMV1013_CHIP_ID			0xA
 #define ADMV1013_REVISION_ID_MSK		GENMASK(3, 0)
-#define ADMV1013_REVISION_ID(x)        		FIELD_PREP(ADMV1013_REVISION_ID_MSK, x)
+#define ADMV1013_REVISION_ID(x)			FIELD_PREP(ADMV1013_REVISION_ID_MSK, x)
 
 /* ADMV1013_REG_ALARM Map */
-#define ADMV1013_PARITY_ERROR_MSK       	BIT(15)
-#define ADMV1013_PARITY_ERROR(x)         	FIELD_PREP(ADMV1013_PARITY_ERROR_MSK, x)
+#define ADMV1013_PARITY_ERROR_MSK		BIT(15)
+#define ADMV1013_PARITY_ERROR(x)		FIELD_PREP(ADMV1013_PARITY_ERROR_MSK, x)
 #define ADMV1013_TOO_FEW_ERRORS_MSK		BIT(14)
-#define ADMV1013_TOO_FEW_ERRORS(x)         	FIELD_PREP(ADMV1013_TOO_FEW_ERRORS_MSK, x)
+#define ADMV1013_TOO_FEW_ERRORS(x)		FIELD_PREP(ADMV1013_TOO_FEW_ERRORS_MSK, x)
 #define ADMV1013_TOO_MANY_ERRORS_MSK		BIT(13)
-#define ADMV1013_TOO_MANY_ERRORS(x)         	FIELD_PREP(ADMV1013_TOO_MANY_ERRORS_MSK, x)
+#define ADMV1013_TOO_MANY_ERRORS(x)		FIELD_PREP(ADMV1013_TOO_MANY_ERRORS_MSK, x)
 #define ADMV1013_ADDRESS_RANGE_ERROR_MSK	BIT(12)
-#define ADMV1013_ADDRESS_RANGE_ERROR(x)         FIELD_PREP(ADMV1013_ADDRESS_RANGE_ERROR_MSK, x)
+#define ADMV1013_ADDRESS_RANGE_ERROR(x)		FIELD_PREP(ADMV1013_ADDRESS_RANGE_ERROR_MSK, x)
 
 /* ADMV1013_REG_ENABLE Map */
-#define ADMV1013_VGA_PD_MSK       		BIT(15)
-#define ADMV1013_VGA_PD(x)         		FIELD_PREP(ADMV1013_VGA_PD_MSK, x)
-#define ADMV1013_MIXER_PD_MSK       		BIT(14)
-#define ADMV1013_MIXER_PD(x)         		FIELD_PREP(ADMV1013_MIXER_PD_MSK, x)
+#define ADMV1013_VGA_PD_MSK			BIT(15)
+#define ADMV1013_VGA_PD(x)			FIELD_PREP(ADMV1013_VGA_PD_MSK, x)
+#define ADMV1013_MIXER_PD_MSK			BIT(14)
+#define ADMV1013_MIXER_PD(x)			FIELD_PREP(ADMV1013_MIXER_PD_MSK, x)
 #define ADMV1013_QUAD_PD_MSK			GENMASK(13, 11)
-#define ADMV1013_QUAD_PD(x)         		FIELD_PREP(ADMV1013_QUAD_PD_MSK, x)
+#define ADMV1013_QUAD_PD(x)			FIELD_PREP(ADMV1013_QUAD_PD_MSK, x)
 #define ADMV1013_BG_PD_MSK			BIT(10)
-#define ADMV1013_BG_PD(x)         		FIELD_PREP(ADMV1013_BG_PD_MSK, x)
+#define ADMV1013_BG_PD(x)			FIELD_PREP(ADMV1013_BG_PD_MSK, x)
 #define ADMV1013_MIXER_IF_EN_MSK		BIT(7)
-#define ADMV1013_MIXER_IF_EN(x)         	FIELD_PREP(ADMV1013_MIXER_IF_EN_MSK, x)
+#define ADMV1013_MIXER_IF_EN(x)			FIELD_PREP(ADMV1013_MIXER_IF_EN_MSK, x)
 #define ADMV1013_DET_EN_MSK			BIT(5)
-#define ADMV1013_DET_EN(x)         		FIELD_PREP(ADMV1013_DET_EN_MSK, x)
+#define ADMV1013_DET_EN(x)			FIELD_PREP(ADMV1013_DET_EN_MSK, x)
 
 /* ADMV1013_REG_LO_AMP_I Map */
 #define ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK	GENMASK(13, 7)
-#define ADMV1013_LOAMP_PH_ADJ_I_FINE(x)        	FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK, x)
+#define ADMV1013_LOAMP_PH_ADJ_I_FINE(x)		FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_I_FINE_MSK, x)
 #define ADMV1013_MIXER_VGATE_MSK		GENMASK(6, 0)
-#define ADMV1013_MIXER_VGATE(x)         	FIELD_PREP(ADMV1013_MIXER_VGATE_MSK, x)
+#define ADMV1013_MIXER_VGATE(x)			FIELD_PREP(ADMV1013_MIXER_VGATE_MSK, x)
 
 /* ADMV1013_REG_LO_AMP_Q Map */
 #define ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK	GENMASK(13, 7)
-#define ADMV1013_LOAMP_PH_ADJ_Q_FINE(x)        	FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK, x)
+#define ADMV1013_LOAMP_PH_ADJ_Q_FINE(x)		FIELD_PREP(ADMV1013_LOAMP_PH_ADJ_Q_FINE_MSK, x)
 
 /* ADMV1013_REG_OFFSET_ADJUST_I Map */
 #define ADMV1013_MIXER_OFF_ADJ_I_P_MSK		GENMASK(15, 9)
-#define ADMV1013_MIXER_OFF_ADJ_I_P(x)        	FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_I_P_MSK, x)
+#define ADMV1013_MIXER_OFF_ADJ_I_P(x)		FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_I_P_MSK, x)
 #define ADMV1013_MIXER_OFF_ADJ_I_N_MSK		GENMASK(8, 2)
-#define ADMV1013_MIXER_OFF_ADJ_I_N(x)        	FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_I_N_MSK, x)
+#define ADMV1013_MIXER_OFF_ADJ_I_N(x)		FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_I_N_MSK, x)
 
 /* ADMV1013_REG_OFFSET_ADJUST_Q Map */
 #define ADMV1013_MIXER_OFF_ADJ_Q_P_MSK		GENMASK(15, 9)
-#define ADMV1013_MIXER_OFF_ADJ_Q_P(x)        	FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_Q_P_MSK, x)
+#define ADMV1013_MIXER_OFF_ADJ_Q_P(x)		FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_Q_P_MSK, x)
 #define ADMV1013_MIXER_OFF_ADJ_Q_N_MSK		GENMASK(8, 2)
-#define ADMV1013_MIXER_OFF_ADJ_Q_N(x)        	FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_Q_N_MSK, x)
+#define ADMV1013_MIXER_OFF_ADJ_Q_N(x)		FIELD_PREP(ADMV1013_MIXER_OFF_ADJ_Q_N_MSK, x)
 
 /* ADMV1013_REG_QUAD Map */
-#define ADMV1013_QUAD_SE_MODE_MSK              GENMASK(9, 6)
-#define ADMV1013_QUAD_SE_MODE(x)               FIELD_PREP(ADMV1013_QUAD_SE_MODE_MSK, x)
-#define ADMV1013_QUAD_FILTERS_MSK              GENMASK(3, 0)
-#define ADMV1013_QUAD_FILTERS(x)               FIELD_PREP(ADMV1013_QUAD_FILTERS_MSK, x)
+#define ADMV1013_QUAD_SE_MODE_MSK		GENMASK(9, 6)
+#define ADMV1013_QUAD_SE_MODE(x)		FIELD_PREP(ADMV1013_QUAD_SE_MODE_MSK, x)
+#define ADMV1013_QUAD_FILTERS_MSK		GENMASK(3, 0)
+#define ADMV1013_QUAD_FILTERS(x)		FIELD_PREP(ADMV1013_QUAD_FILTERS_MSK, x)
 
 /* ADMV1013_REG_VVA_TEMP_COMP Map */
 #define ADMV1013_VVA_TEMP_COMP_MSK		GENMASK(15, 0)
-#define ADMV1013_VVA_TEMP_COMP(x)  		FIELD_PREP(ADMV1013_VVA_TEMP_COMP_MSK, x)
+#define ADMV1013_VVA_TEMP_COMP(x)		FIELD_PREP(ADMV1013_VVA_TEMP_COMP_MSK, x)
 
 enum supported_parts {
 	ADMV1013,
@@ -106,14 +106,14 @@ enum supported_parts {
 
 struct admv1013_dev {
 	struct spi_device	*spi;
-	struct clk 		*clkin;
+	struct clk		*clkin;
 	struct clock_scale	*clkscale;
 	struct regulator	*reg;
 	struct notifier_block	nb;
 	u8			quad_se_mode;
 	u64			clkin_freq;
 	bool			parity_en;
-	bool 			bus_locked;
+	bool			bus_locked;
 	u8			data[3];
 };
 
@@ -413,62 +413,62 @@ static ssize_t admv1013_show(struct device *device,
 	return sprintf(buf, "%d\n", val);
 }
 
-static IIO_DEVICE_ATTR(mixer_off_adj_i_p, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_i_p, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       MIXER_OFF_ADJ_I_P);
 
-static IIO_DEVICE_ATTR(mixer_off_adj_i_n, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_i_n, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       MIXER_OFF_ADJ_I_N);
 
-static IIO_DEVICE_ATTR(mixer_off_adj_q_p, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_q_p, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       MIXER_OFF_ADJ_Q_P);
 
-static IIO_DEVICE_ATTR(mixer_off_adj_q_n, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_off_adj_q_n, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       MIXER_OFF_ADJ_Q_N);
 
-static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       LOAMP_PH_ADJ_I_FINE);
 
-static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       LOAMP_PH_ADJ_Q_FINE);
 
-static IIO_DEVICE_ATTR(vga_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(vga_pd, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       VGA_PD);
 
-static IIO_DEVICE_ATTR(mixer_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_pd, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       MIXER_PD);
 
-static IIO_DEVICE_ATTR(quad_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(quad_pd, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       QUAD_PD);
 
-static IIO_DEVICE_ATTR(bg_pd, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(bg_pd, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       BG_PD);
 
-static IIO_DEVICE_ATTR(mixer_if_en, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(mixer_if_en, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       MIXER_IF_EN);
 
-static IIO_DEVICE_ATTR(det_en, S_IRUGO | S_IWUSR,
+static IIO_DEVICE_ATTR(det_en, 0644,
 		       admv1013_show,
 		       admv1013_store,
 		       DET_EN);
@@ -532,7 +532,7 @@ static int admv1013_freq_change(struct notifier_block *nb, unsigned long flags, 
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
 
 	ret = admv1013_update_quad_filters(dev);
-	if(ret < 0)
+	if (ret < 0)
 		return ret;
 
 	return NOTIFY_OK;
@@ -589,11 +589,11 @@ static int admv1013_init(struct admv1013_dev *dev)
 
 	vcm = regulator_get_voltage(dev->reg);
 
-	if(vcm >= 0 && vcm < 1800000)
+	if (vcm >= 0 && vcm < 1800000)
 		mixer_vgate = (2389 * vcm / 1000000 + 8100) / 100;
 	else if (vcm > 1800000 && vcm < 2600000)
 		mixer_vgate = (2375 * vcm / 1000000 + 125) / 100;
-	
+
 	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_LO_AMP_I,
 				 ADMV1013_MIXER_VGATE_MSK,
 				 ADMV1013_MIXER_VGATE(mixer_vgate));
@@ -664,19 +664,16 @@ static int admv1013_probe(struct spi_device *spi)
 	dev->spi = spi;
 
 	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
-	if (IS_ERR(dev->clkin)) {
+	if (IS_ERR(dev->clkin))
 		return PTR_ERR(dev->clkin);
-	}
 
 	ret = clk_prepare_enable(dev->clkin);
-	if (ret < 0) {
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1013_clk_disable, dev);
-	if (ret < 0) {
+	if (ret < 0)
 		return ret;
-	}
 
 	of_clk_get_scale(spi->dev.of_node, "lo_in", &dev_clkscale);
 
@@ -689,9 +686,8 @@ static int admv1013_probe(struct spi_device *spi)
 		return ret;
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1013_clk_notifier_unreg, dev);
-	if (ret < 0) {
+	if (ret < 0)
 		return ret;
-	}
 
 	ret = admv1013_init(dev);
 	if (ret < 0) {
