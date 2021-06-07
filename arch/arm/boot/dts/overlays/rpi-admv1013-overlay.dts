@@ -58,6 +58,7 @@
 				clock-names = "lo_in";
 				cmv-supply = <&cmv>;
 				adi,quad-se-mode = <0>;
+				adi,parity-enable;
 			};
 		};
 	};

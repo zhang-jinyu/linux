@@ -6,6 +6,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/bitops.h>
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
@@ -116,26 +117,17 @@ struct admv1013_dev {
 	u8			data[3];
 };
 
-static void check_parity(u32 input, u32 *count)
-{
-	u32 i = 0;
-	while(input) {
-		i += input & 1;
-		input >>= 1;
-	}
-
-	*count = i;
-}
-
 static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
 			      unsigned int *val)
 {
 	int ret;
-	unsigned int cnt, p_bit, temp;
+	unsigned int cnt, temp;
 	struct spi_message m;
 	struct spi_transfer t = {0};
 
 	dev->data[0] = 0x80 | (reg << 1);
+	dev->data[1] = 0x0;
+	dev->data[2] = 0x0;
 
 	t.rx_buf = dev->data;
 	t.tx_buf = dev->data;
@@ -148,14 +140,16 @@ static int admv1013_spi_read(struct admv1013_dev *dev, unsigned int reg,
 	else
 		ret = spi_sync(dev->spi, &m);
 
-	temp = (dev->data[2] << 16) | (dev->data[1] << 8) | dev->data[0];
+	if (ret < 0)
+		return ret;
 
-	if (dev->parity_en)
-	{
-		check_parity(temp, &cnt);
-		p_bit = temp & 0x1;
+	temp = ((dev->data[0] | 0x80 | (reg << 1)) << 16) |
+		(dev->data[1] << 8) |
+		dev->data[2];
 
-		if ((!(cnt % 2) && p_bit) || ((cnt % 2) && !p_bit))
+	if (dev->parity_en) {
+		cnt = hweight_long(temp);
+		if (!(cnt % 2))
 			return -EINVAL;
 	}
 
@@ -174,10 +168,8 @@ static int admv1013_spi_write(struct admv1013_dev *dev,
 
 	val = (val << 1);
 
-	if (dev->parity_en)
-	{
-		check_parity((reg << 17) | val , &cnt);
-
+	if (dev->parity_en) {
+		cnt = hweight_long((reg << 17) | val);
 		if (cnt % 2 == 0)
 			val |= 0x1;
 	}
@@ -558,6 +550,9 @@ static int admv1013_init(struct admv1013_dev *dev)
 	int ret;
 	u32 vcm, mixer_vgate;
 	u32 chip_id;
+	bool temp_parity = dev->parity_en;
+
+	dev->parity_en = false;
 
 	/* Perform a software reset */
 	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
@@ -565,12 +560,20 @@ static int admv1013_init(struct admv1013_dev *dev)
 				 ADMV1013_SPI_SOFT_RESET(1));
 	if (ret < 0)
 		return ret;
-	
+
 	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
-				 ADMV1013_PARITY_EN_MSK,
-				 ADMV1013_PARITY_EN(dev->parity_en));
+				 ADMV1013_SPI_SOFT_RESET_MSK,
+				 ADMV1013_SPI_SOFT_RESET(0));
 	if (ret < 0)
 		return ret;
+
+	ret = admv1013_spi_update_bits(dev, ADMV1013_REG_SPI_CONTROL,
+				 ADMV1013_PARITY_EN_MSK,
+				 ADMV1013_PARITY_EN(temp_parity));
+	if (ret < 0)
+		return ret;
+
+	dev->parity_en = temp_parity;
 
 	ret = admv1013_spi_write(dev, ADMV1013_REG_VVA_TEMP_COMP, 0xE700);
 	if (ret < 0)
@@ -613,6 +616,11 @@ static void admv1013_clk_disable(void *data)
 	clk_disable_unprepare(dev->clkin);
 }
 
+static void admv1013_reg_disable(void *data)
+{
+	regulator_disable(data);
+}
+
 static int admv1013_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
@@ -643,6 +651,11 @@ static int admv1013_probe(struct spi_device *spi)
 		dev_err(&spi->dev, "Failed to enable specified Common-Mode Voltage!\n");
 		return ret;
 	}
+
+	ret = devm_add_action_or_reset(&spi->dev, admv1013_reg_disable,
+					dev->reg);
+	if (ret < 0)
+		return ret;
 
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1013_info;
@@ -680,27 +693,13 @@ static int admv1013_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	// ret = admv1013_init(dev);
-	// if (ret < 0) {
-	// 	dev_err(&spi->dev, "admv1013 init failed\n");
-	// 	return ret;
-	// }
-
-	// dev_info(&spi->dev, "ADMV1013 PROBED");
+	ret = admv1013_init(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "admv1013 init failed\n");
+		return ret;
+	}
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
-}
-
-static int admv1013_remove(struct spi_device *spi)
-{
-	struct iio_dev *indio_dev = spi_get_drvdata(spi);
-	struct admv1013_dev *dev = iio_priv(indio_dev);
-
-	iio_device_unregister(indio_dev);
-
-	regulator_disable(dev->reg);
-
-	return 0;
 }
 
 static const struct spi_device_id admv1013_id[] = {
@@ -721,7 +720,6 @@ static struct spi_driver admv1013_driver = {
 			.of_match_table = admv1013_of_match,
 		},
 	.probe = admv1013_probe,
-	.remove = admv1013_remove,
 	.id_table = admv1013_id,
 };
 module_spi_driver(admv1013_driver);
