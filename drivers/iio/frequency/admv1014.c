@@ -6,6 +6,7 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/bitops.h>
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
@@ -133,18 +134,6 @@ struct admv1014_dev {
 	u8			data[3];
 };
 
-static void check_parity(unsigned int input, unsigned int *count)
-{
-	unsigned int i = 0;
-
-	while (input) {
-		i += input & 1;
-		input >>= 1;
-	}
-
-	*count = i;
-}
-
 static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 			      unsigned int *val)
 {
@@ -176,7 +165,7 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 		dev->data[2];
 
 	if (dev->parity_en) {
-		check_parity(temp, &cnt);
+		cnt = hweight_long(temp);
 		if (!(cnt % 2))
 			return -EINVAL;
 	}
@@ -197,7 +186,7 @@ static int admv1014_spi_write(struct admv1014_dev *dev,
 	val = (val << 1);
 
 	if (dev->parity_en) {
-		check_parity((reg << 17) | val, &cnt);
+		cnt = hweight_long((reg << 17) | val);
 		if (cnt % 2 == 0)
 			val |= 0x1;
 	}
