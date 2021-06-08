@@ -581,18 +581,10 @@ static int admv1014_reg_access(struct iio_dev *indio_dev,
 	struct admv1014_dev *dev = iio_priv(indio_dev);
 	int ret;
 
-	mutex_lock(&indio_dev->mlock);
-	spi_bus_lock(dev->spi->master);
-	dev->bus_locked = true;
-
 	if (read_val)
 		ret = admv1014_spi_read(dev, reg, read_val);
 	else
 		ret = admv1014_spi_write(dev, reg, write_val);
-
-	dev->bus_locked = false;
-	spi_bus_unlock(dev->spi->master);
-	mutex_unlock(&indio_dev->mlock);
 
 	return ret;
 }
@@ -611,11 +603,7 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 	/* cache the new rate */
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
 
-	ret = admv1014_update_quad_filters(dev);
-	if (ret < 0)
-		return ret;
-
-	return NOTIFY_OK;
+	return notifier_from_errno(admv1014_update_quad_filters(dev));
 }
 
 static void admv1014_clk_notifier_unreg(void *data)
@@ -625,8 +613,9 @@ static void admv1014_clk_notifier_unreg(void *data)
 	clk_notifier_unregister(dev->clkin, &dev->nb);
 }
 
-static int admv1014_init(struct admv1014_dev *dev)
+static int admv1014_init(struct spi_device *spi)
 {
+	struct admv1014_dev *dev = spi_get_drvdata(spi);
 	int ret;
 	unsigned int chip_id;
 	bool temp_parity = dev->parity_en;
@@ -637,57 +626,66 @@ static int admv1014_init(struct admv1014_dev *dev)
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_SPI_SOFT_RESET_MSK,
 				 ADMV1014_SPI_SOFT_RESET(1));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&spi->dev, "ADMV1014 SPI software reset failed.\n");
 		return ret;
-
-	udelay(200);
+	}
 
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_SPI_SOFT_RESET_MSK,
 				 ADMV1014_SPI_SOFT_RESET(0));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&spi->dev, "ADMV1014 SPI software reset disable failed.\n");
 		return ret;
-
+	}
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_PARITY_EN_MSK,
 				 ADMV1014_PARITY_EN(temp_parity));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&spi->dev, "ADMV1014 Parity enable/disable failed.\n");
 		return ret;
+	}
 
 	dev->parity_en = temp_parity;
 
 	ret = admv1014_spi_write(dev, ADMV1014_REG_VVA_TEMP_COMP, 0x727C);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&spi->dev, "Writing default Temperature Compensation value failed.\n");
 		return ret;
+	}
 
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE,
 				 ADMV1014_P1DB_COMPENSATION_MSK,
 				 ADMV1014_P1DB_COMPENSATION(3));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&spi->dev, "Writing default Temperature Compensation value failed.\n");
 		return ret;
+	}
 
 	ret = admv1014_spi_read(dev, ADMV1014_REG_SPI_CONTROL, &chip_id);
 	if (ret < 0)
 		return ret;
 
 	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
-	if (chip_id != ADMV1014_CHIP_ID)
+	if (chip_id != ADMV1014_CHIP_ID) {
+		dev_err(&spi->dev, "Writing default Temperature Compensation value failed.\n");
 		return -EINVAL;
+	}
 
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_QUAD,
 				 ADMV1014_QUAD_SE_MODE_MSK,
 				 ADMV1014_QUAD_SE_MODE(dev->quad_se_mode));
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(&spi->dev, "Writing Quad SE Mode failed.\n");
 		return ret;
+	}
 
 	return admv1014_update_quad_filters(dev);
 }
 
 static void admv1014_clk_disable(void *data)
 {
-	struct admv1014_dev *dev = data;
-
-	clk_disable_unprepare(dev->clkin);
+	clk_disable_unprepare(data);
 }
 
 static int admv1014_probe(struct spi_device *spi)
@@ -708,7 +706,7 @@ static int admv1014_probe(struct spi_device *spi)
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
 		dev_err(&spi->dev, "adi,quad-se-mode property not defined!");
-		return -EINVAL;
+		return ret;
 	}
 
 	indio_dev->dev.parent = &spi->dev;
@@ -725,7 +723,7 @@ static int admv1014_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
-	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_disable, dev);
+	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_disable, dev->clkin);
 	if (ret < 0)
 		return ret;
 
@@ -743,11 +741,9 @@ static int admv1014_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
-	ret = admv1014_init(dev);
-	if (ret < 0) {
-		dev_err(&spi->dev, "admv1014 init failed\n");
+	ret = admv1014_init(spi);
+	if (ret < 0)
 		return ret;
-	}
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
