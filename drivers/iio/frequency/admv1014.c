@@ -127,10 +127,18 @@ struct admv1014_dev {
 	struct clk		*clkin;
 	struct clock_scale	*clkscale;
 	struct notifier_block	nb;
-	u8			quad_se_mode;
+	struct mutex		lock;
 	u64			clkin_freq;
+	u8			quad_se_mode;
+	u8			p1db_comp;
 	bool			parity_en;
-	bool			bus_locked;
+	bool			ibias_pd;
+	bool			if_amp_pd;
+	bool			quad_bg_pd;
+	bool			bb_amp_pd;
+	bool			quad_ibias_pd;
+	bool			det_en;
+	bool			bg_pd;
 	u8			data[3];
 };
 
@@ -152,10 +160,7 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 
 	spi_message_init_with_transfers(&m, &t, 1);
 
-	if (dev->bus_locked)
-		ret = spi_sync_locked(dev->spi, &m);
-	else
-		ret = spi_sync(dev->spi, &m);
+	ret = spi_sync(dev->spi, &m);
 
 	if (ret < 0)
 		return ret;
@@ -201,9 +206,6 @@ static int admv1014_spi_write(struct admv1014_dev *dev,
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 
-	if (dev->bus_locked)
-		return spi_sync_locked(dev->spi, &m);
-
 	return spi_sync(dev->spi, &m);
 }
 
@@ -213,6 +215,7 @@ static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 	int ret;
 	unsigned int data, temp;
 
+	mutex_lock(&dev->lock);
 	ret = admv1014_spi_read(dev, reg, &data);
 	if (ret < 0)
 		return ret;
@@ -220,7 +223,10 @@ static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 	temp = data & ~mask;
 	temp |= val & mask;
 
-	return admv1014_spi_write(dev, reg, temp);
+	ret = admv1014_spi_write(dev, reg, temp);
+	mutex_unlock(&dev->lock);
+
+	return ret;
 }
 
 static int admv1014_update_quad_filters(struct admv1014_dev *dev)
@@ -249,15 +255,7 @@ enum admv1014_iio_dev_attr {
 	LOAMP_PH_ADJ_I_FINE,
 	LOAMP_PH_ADJ_Q_FINE,
 	MIXER_VGATE,
-	DET_PROG,
-	IBIAS_PD,
-	P1DB_COMPENSATION,
-	IF_AMP_PD,
-	QUAD_BG_PD,
-	BB_AMP_PD,
-	QUAD_IBIAS_PD,
-	DET_EN,
-	BG_PD
+	DET_PROG
 };
 
 static ssize_t admv1014_store(struct device *device,
@@ -315,46 +313,6 @@ static ssize_t admv1014_store(struct device *device,
 		reg = ADMV1014_REG_MIXER;
 		mask = ADMV1014_DET_PROG_MSK;
 		val = ADMV1014_DET_PROG(val);
-		break;
-	case IBIAS_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_IBIAS_PD_MSK;
-		val = ADMV1014_IBIAS_PD(val);
-		break;
-	case P1DB_COMPENSATION:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_P1DB_COMPENSATION_MSK;
-		val = ADMV1014_P1DB_COMPENSATION(val);
-		break;
-	case IF_AMP_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_IF_AMP_PD_MSK;
-		val = ADMV1014_IF_AMP_PD(val);
-		break;
-	case QUAD_BG_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_QUAD_BG_PD_MSK;
-		val = ADMV1014_QUAD_BG_PD(val);
-		break;
-	case BB_AMP_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_BB_AMP_PD_MSK;
-		val = ADMV1014_BB_AMP_PD(val);
-		break;
-	case QUAD_IBIAS_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_QUAD_IBIAS_PD_MSK;
-		val = ADMV1014_QUAD_IBIAS_PD(val);
-		break;
-	case DET_EN:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_DET_EN_MSK;
-		val = ADMV1014_DET_EN(val);
-		break;
-	case BG_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_BG_PD_MSK;
-		val = ADMV1014_BG_PD(val);
 		break;
 	default:
 		return -EINVAL;
@@ -416,46 +374,6 @@ static ssize_t admv1014_show(struct device *device,
 		reg = ADMV1014_REG_MIXER;
 		mask = ADMV1014_DET_PROG_MSK;
 		break;
-	case IBIAS_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_IBIAS_PD_MSK;
-		data_shift = 14;
-		break;
-	case P1DB_COMPENSATION:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_P1DB_COMPENSATION_MSK;
-		data_shift = 12;
-		break;
-	case IF_AMP_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_IF_AMP_PD_MSK;
-		data_shift = 11;
-		break;
-	case QUAD_BG_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_QUAD_BG_PD_MSK;
-		data_shift = 9;
-		break;
-	case BB_AMP_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_BB_AMP_PD_MSK;
-		data_shift = 8;
-		break;
-	case QUAD_IBIAS_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_QUAD_IBIAS_PD_MSK;
-		data_shift = 7;
-		break;
-	case DET_EN:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_DET_EN_MSK;
-		data_shift = 6;
-		break;
-	case BG_PD:
-		reg = ADMV1014_REG_ENABLE;
-		mask = ADMV1014_BG_PD_MSK;
-		data_shift = 5;
-		break;
 	default:
 		return -EINVAL;
 	}
@@ -509,46 +427,6 @@ static IIO_DEVICE_ATTR(det_prog, 0644,
 		       admv1014_store,
 		       DET_PROG);
 
-static IIO_DEVICE_ATTR(ibias_pd, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       IBIAS_PD);
-
-static IIO_DEVICE_ATTR(p1db_compensation, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       P1DB_COMPENSATION);
-
-static IIO_DEVICE_ATTR(if_amp_pd, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       IF_AMP_PD);
-
-static IIO_DEVICE_ATTR(quad_bg_pd, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       QUAD_BG_PD);
-
-static IIO_DEVICE_ATTR(bb_amp_pd, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       BB_AMP_PD);
-
-static IIO_DEVICE_ATTR(quad_ibias_pd, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       QUAD_IBIAS_PD);
-
-static IIO_DEVICE_ATTR(det_en, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       DET_EN);
-
-static IIO_DEVICE_ATTR(bg_pd, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       BG_PD);
-
 static struct attribute *admv1014_attributes[] = {
 	&iio_dev_attr_if_amp_coarse_gain_i.dev_attr.attr,
 	&iio_dev_attr_if_amp_coarse_gain_q.dev_attr.attr,
@@ -558,14 +436,6 @@ static struct attribute *admv1014_attributes[] = {
 	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
 	&iio_dev_attr_mixer_vgate.dev_attr.attr,
 	&iio_dev_attr_det_prog.dev_attr.attr,
-	&iio_dev_attr_ibias_pd.dev_attr.attr,
-	&iio_dev_attr_p1db_compensation.dev_attr.attr,
-	&iio_dev_attr_if_amp_pd.dev_attr.attr,
-	&iio_dev_attr_quad_bg_pd.dev_attr.attr,
-	&iio_dev_attr_bb_amp_pd.dev_attr.attr,
-	&iio_dev_attr_quad_ibias_pd.dev_attr.attr,
-	&iio_dev_attr_det_en.dev_attr.attr,
-	&iio_dev_attr_bg_pd.dev_attr.attr,
 	NULL
 };
 
@@ -598,7 +468,6 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 {
 	struct admv1014_dev *dev = container_of(nb, struct admv1014_dev, nb);
 	struct clk_notifier_data *cnd = data;
-	int ret;
 
 	/* cache the new rate */
 	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
@@ -680,7 +549,28 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	return admv1014_update_quad_filters(dev);
+	ret = admv1014_update_quad_filters(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Update Quad Filters failed.\n");
+		return ret;
+	}
+
+	return admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE, ADMV1014_IBIAS_PD_MSK |
+					ADMV1014_P1DB_COMPENSATION_MSK |
+					ADMV1014_IF_AMP_PD_MSK |
+					ADMV1014_QUAD_BG_PD_MSK |
+					ADMV1014_BB_AMP_PD_MSK |
+					ADMV1014_QUAD_IBIAS_PD_MSK |
+					ADMV1014_DET_EN_MSK |
+					ADMV1014_BG_PD_MSK,
+					ADMV1014_IBIAS_PD(dev->ibias_pd) |
+					ADMV1014_P1DB_COMPENSATION(dev->p1db_comp) |
+					ADMV1014_IF_AMP_PD(dev->if_amp_pd) |
+					ADMV1014_QUAD_BG_PD(dev->quad_bg_pd) |
+					ADMV1014_BB_AMP_PD(dev->bb_amp_pd) |
+					ADMV1014_QUAD_IBIAS_PD(dev->quad_ibias_pd)|
+					ADMV1014_DET_EN(dev->det_en)|
+					ADMV1014_BG_PD(dev->bg_pd));
 }
 
 static void admv1014_clk_disable(void *data)
@@ -701,7 +591,20 @@ static int admv1014_probe(struct spi_device *spi)
 
 	dev = iio_priv(indio_dev);
 
-	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-enable");
+	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-en");
+	dev->ibias_pd = of_property_read_bool(spi->dev.of_node, "adi,ibias-pd");
+	dev->if_amp_pd = of_property_read_bool(spi->dev.of_node, "adi,if-amp-pd");
+	dev->quad_bg_pd = of_property_read_bool(spi->dev.of_node, "adi,quad-bg-pd");
+	dev->bb_amp_pd = of_property_read_bool(spi->dev.of_node, "adi,bb-amp-pd");
+	dev->quad_ibias_pd = of_property_read_bool(spi->dev.of_node, "adi,quad-ibias-pd");
+	dev->det_en = of_property_read_bool(spi->dev.of_node, "adi,det-en");
+	dev->bg_pd = of_property_read_bool(spi->dev.of_node, "adi,bg-pd");
+
+	ret = of_property_read_u8(spi->dev.of_node, "adi,p1db-comp", &dev->p1db_comp);
+	if (ret < 0) {
+		dev_err(&spi->dev, "adi,p1db-comp not defined!");
+		return ret;
+	}
 
 	ret = of_property_read_u8(spi->dev.of_node, "adi,quad-se-mode", &dev->quad_se_mode);
 	if (ret < 0) {
