@@ -218,12 +218,14 @@ static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 	mutex_lock(&dev->lock);
 	ret = admv1014_spi_read(dev, reg, &data);
 	if (ret < 0)
-		return ret;
+		goto exit;
 
 	temp = data & ~mask;
 	temp |= val & mask;
 
 	ret = admv1014_spi_write(dev, reg, temp);
+
+exit:
 	mutex_unlock(&dev->lock);
 
 	return ret;
@@ -484,7 +486,8 @@ static void admv1014_clk_notifier_unreg(void *data)
 
 static int admv1014_init(struct spi_device *spi)
 {
-	struct admv1014_dev *dev = spi_get_drvdata(spi);
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct admv1014_dev *dev = iio_priv(indio_dev);
 	int ret;
 	unsigned int chip_id;
 	bool temp_parity = dev->parity_en;
@@ -507,6 +510,7 @@ static int admv1014_init(struct spi_device *spi)
 		dev_err(&spi->dev, "ADMV1014 SPI software reset disable failed.\n");
 		return ret;
 	}
+
 	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_PARITY_EN_MSK,
 				 ADMV1014_PARITY_EN(temp_parity));
@@ -523,21 +527,13 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE,
-				 ADMV1014_P1DB_COMPENSATION_MSK,
-				 ADMV1014_P1DB_COMPENSATION(3));
-	if (ret < 0) {
-		dev_err(&spi->dev, "Writing default Temperature Compensation value failed.\n");
-		return ret;
-	}
-
 	ret = admv1014_spi_read(dev, ADMV1014_REG_SPI_CONTROL, &chip_id);
 	if (ret < 0)
 		return ret;
 
 	chip_id = (chip_id & ADMV1014_CHIP_ID_MSK) >> 4;
 	if (chip_id != ADMV1014_CHIP_ID) {
-		dev_err(&spi->dev, "Writing default Temperature Compensation value failed.\n");
+		dev_err(&spi->dev, "Invalid Chip ID.\n");
 		return -EINVAL;
 	}
 
@@ -612,6 +608,8 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 	}
 
+	spi_set_drvdata(spi, indio_dev);
+
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1014_info;
 	indio_dev->name = "admv1014";
@@ -643,6 +641,8 @@ static int admv1014_probe(struct spi_device *spi)
 	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_notifier_unreg, dev);
 	if (ret < 0)
 		return ret;
+
+	mutex_init(&dev->lock);
 
 	ret = admv1014_init(spi);
 	if (ret < 0)
