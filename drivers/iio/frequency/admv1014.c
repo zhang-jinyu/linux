@@ -17,6 +17,7 @@
 #include <linux/module.h>
 #include <linux/notifier.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/spi/spi.h>
 
 #include <linux/iio/sysfs.h>
@@ -95,7 +96,7 @@
 #define ADMV1014_IF_AMP_COARSE_GAIN_I(x)	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_I_MSK, x)
 #define ADMV1014_IF_AMP_FINE_GAIN_Q_MSK		GENMASK(7, 4)
 #define ADMV1014_IF_AMP_FINE_GAIN_Q(x)		FIELD_PREP(ADMV1014_IF_AMP_FINE_GAIN_Q_MSK, x)
-#define ADMV1014_IF_AMP_FINE_GAIN_I_MSK		GENMASK(7, 4)
+#define ADMV1014_IF_AMP_FINE_GAIN_I_MSK		GENMASK(3, 0)
 #define ADMV1014_IF_AMP_FINE_GAIN_I(x)		FIELD_PREP(ADMV1014_IF_AMP_FINE_GAIN_I_MSK, x)
 
 /* ADMV1014_REG_IF_AMP_BB_AMP Map */
@@ -108,7 +109,7 @@
 
 /* ADMV1014_REG_BB_AMP_AGC Map */
 #define ADMV1014_BB_AMP_REF_GEN_MSK		GENMASK(6, 3)
-#define ADMV1014_IF_AMP_COARSE_GAIN_Q(x)	FIELD_PREP(ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK, x)
+#define ADMV1014_BB_AMP_REF_GEN(x)		FIELD_PREP(ADMV1014_BB_AMP_REF_GEN_MSK, x)
 #define ADMV1014_BB_AMP_GAIN_CTRL_MSK		GENMASK(2, 1)
 #define ADMV1014_BB_AMP_GAIN_CTRL(x)		FIELD_PREP(ADMV1014_BB_AMP_GAIN_CTRL_MSK, x)
 #define ADMV1014_BB_SWITCH_HIGH_LOW_CM_MSK	BIT(0)
@@ -128,6 +129,7 @@ struct admv1014_dev {
 	struct clock_scale	*clkscale;
 	struct notifier_block	nb;
 	struct mutex		lock;
+	struct regulator	*reg;
 	u64			clkin_freq;
 	u8			quad_se_mode;
 	u8			p1db_comp;
@@ -141,6 +143,8 @@ struct admv1014_dev {
 	bool			bg_pd;
 	u8			data[3];
 };
+
+static const int mixer_vgate_table[] = {106, 107, 108, 110, 111, 112, 113, 114, 117, 118, 119, 120, 122, 123, 44, 45};
 
 static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 			      unsigned int *val)
@@ -249,16 +253,154 @@ static int admv1014_update_quad_filters(struct admv1014_dev *dev)
 					ADMV1014_QUAD_FILTERS(filt_raw));
 }
 
+static int admv1014_update_vcm_settings(struct admv1014_dev *dev)
+{
+	unsigned int i, vcm_mv, vcm_comp, bb_sw_high_low_cm;
+	int ret;
+
+	vcm_mv = regulator_get_voltage(dev->reg) / 1000;
+	for (i = 0; i < 16; i++) {
+		vcm_comp = 1050 + (i * 50);
+		if (vcm_mv == vcm_comp) {
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER, 
+							ADMV1014_MIXER_VGATE_MSK,
+							ADMV1014_MIXER_VGATE(mixer_vgate_table[i]));
+			if (ret < 0)
+				return ret;
+
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
+							ADMV1014_BB_AMP_REF_GEN_MSK,
+							ADMV1014_BB_AMP_REF_GEN(i));
+			if (ret < 0)
+				return ret;
+			
+			bb_sw_high_low_cm = !(i / 2);
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
+							ADMV1014_BB_SWITCH_HIGH_LOW_CM_MSK,
+							ADMV1014_BB_SWITCH_HIGH_LOW_CM(bb_sw_high_low_cm));
+		}
+	}
+
+	return -EINVAL;
+}
+
 enum admv1014_iio_dev_attr {
-	IF_AMP_COARSE_GAIN_I,
-	IF_AMP_COARSE_GAIN_Q,
-	IF_AMP_FINE_GAIN_I,
-	IF_AMP_FINE_GAIN_Q,
-	LOAMP_PH_ADJ_I_FINE,
-	LOAMP_PH_ADJ_Q_FINE,
-	MIXER_VGATE,
 	DET_PROG
 };
+
+static int admv1014_read_raw(struct iio_dev *indio_dev,
+			    struct iio_chan_spec const *chan,
+			    int *val, int *val2, long info)
+{
+	struct admv1014_dev *dev = iio_priv(indio_dev);
+	unsigned int data;
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_HARDWAREGAIN:
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1014_IF_AMP_COARSE_GAIN_I_MSK) >> 8;
+
+			*val2 = data & ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
+		} else {
+			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP_BB_AMP, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK) >> 12;
+
+			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP, &data);
+			if (ret < 0)
+				return ret;
+
+			*val2 = (data & ADMV1014_IF_AMP_FINE_GAIN_Q_MSK) >> 4;
+		}
+		return IIO_VAL_INT_MULTIPLE;
+	case IIO_CHAN_INFO_OFFSET:
+		ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP_BB_AMP, &data);
+		if (ret < 0)
+			return ret;
+
+		if(chan->channel2 == IIO_MOD_I)
+			*val = data & ADMV1014_BB_AMP_OFFSET_I_MSK;
+		else
+			*val = (data & ADMV1014_BB_AMP_OFFSET_Q_MSK) >> 5;
+
+		return IIO_VAL_INT;
+	case IIO_CHAN_INFO_PHASE:
+		ret = admv1014_spi_read(dev, ADMV1014_REG_LO_AMP_PHASE_ADJUST1, &data);
+		if (ret < 0)
+			return ret;
+
+		if(chan->channel2 == IIO_MOD_I)
+			*val = (data & ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK) >> 9;
+		else
+			*val = (data & ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK) >> 2;
+
+		return IIO_VAL_INT;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int admv1014_write_raw(struct iio_dev *indio_dev,
+			     struct iio_chan_spec const *chan,
+			     int val, int val2, long info)
+{
+	struct admv1014_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_HARDWAREGAIN:
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
+							ADMV1014_IF_AMP_COARSE_GAIN_I_MSK,
+							ADMV1014_IF_AMP_COARSE_GAIN_I(val));
+			if (ret < 0)
+				return ret;
+			
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
+							ADMV1014_IF_AMP_FINE_GAIN_I_MSK,
+							ADMV1014_IF_AMP_FINE_GAIN_I(val2));
+		} else {
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
+							ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK,
+							ADMV1014_IF_AMP_COARSE_GAIN_Q(val));
+			if (ret < 0)
+				return ret;
+			
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
+							ADMV1014_IF_AMP_FINE_GAIN_Q_MSK,
+							ADMV1014_IF_AMP_FINE_GAIN_Q(val2));
+		}
+	case IIO_CHAN_INFO_OFFSET:
+		if (chan->channel2 == IIO_MOD_I)
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
+							ADMV1014_BB_AMP_OFFSET_I_MSK,
+							ADMV1014_BB_AMP_OFFSET_I(val));
+		else
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
+							ADMV1014_BB_AMP_OFFSET_Q_MSK,
+							ADMV1014_BB_AMP_OFFSET_Q(val));
+	case IIO_CHAN_INFO_PHASE:
+		if(chan->channel2 == IIO_MOD_I)
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_LO_AMP_PHASE_ADJUST1,
+							ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK,
+							ADMV1014_LOAMP_PH_ADJ_I_FINE(val));
+		else
+			return admv1014_spi_update_bits(dev, ADMV1014_REG_LO_AMP_PHASE_ADJUST1,
+							ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK,
+							ADMV1014_LOAMP_PH_ADJ_Q_FINE(val));
+
+		return ret;
+	default:
+		return -EINVAL;
+	}
+}
 
 static ssize_t admv1014_store(struct device *device,
 			      struct device_attribute *attr,
@@ -276,41 +418,6 @@ static ssize_t admv1014_store(struct device *device,
 		return ret;
 
 	switch ((u32)this_attr->address) {
-	case IF_AMP_COARSE_GAIN_I:
-		reg = ADMV1014_REG_IF_AMP;
-		mask = ADMV1014_IF_AMP_COARSE_GAIN_I_MSK;
-		val = ADMV1014_IF_AMP_COARSE_GAIN_I(val);
-		break;
-	case IF_AMP_COARSE_GAIN_Q:
-		reg = ADMV1014_REG_IF_AMP_BB_AMP;
-		mask = ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK;
-		val = ADMV1014_IF_AMP_COARSE_GAIN_Q(val);
-		break;
-	case IF_AMP_FINE_GAIN_I:
-		reg = ADMV1014_REG_IF_AMP;
-		mask = ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
-		val = ADMV1014_IF_AMP_FINE_GAIN_I(val);
-		break;
-	case IF_AMP_FINE_GAIN_Q:
-		reg = ADMV1014_REG_IF_AMP;
-		mask = ADMV1014_IF_AMP_FINE_GAIN_Q_MSK;
-		val = ADMV1014_IF_AMP_FINE_GAIN_Q(val);
-		break;
-	case LOAMP_PH_ADJ_I_FINE:
-		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
-		mask = ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK;
-		val = ADMV1014_LOAMP_PH_ADJ_I_FINE(val);
-		break;
-	case LOAMP_PH_ADJ_Q_FINE:
-		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
-		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
-		val = ADMV1014_LOAMP_PH_ADJ_Q_FINE(val);
-		break;
-	case MIXER_VGATE:
-		reg = ADMV1014_REG_MIXER;
-		mask = ADMV1014_MIXER_VGATE_MSK;
-		val = ADMV1014_MIXER_VGATE(val);
-		break;
 	case DET_PROG:
 		reg = ADMV1014_REG_MIXER;
 		mask = ADMV1014_DET_PROG_MSK;
@@ -338,40 +445,6 @@ static ssize_t admv1014_show(struct device *device,
 	u8 reg = 0;
 
 	switch ((u32)this_attr->address) {
-	case IF_AMP_COARSE_GAIN_I:
-		reg = ADMV1014_REG_IF_AMP;
-		mask = ADMV1014_IF_AMP_COARSE_GAIN_I_MSK;
-		data_shift = 8;
-		break;
-	case IF_AMP_COARSE_GAIN_Q:
-		reg = ADMV1014_REG_IF_AMP_BB_AMP;
-		mask = ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK;
-		data_shift = 12;
-		break;
-	case IF_AMP_FINE_GAIN_I:
-		reg = ADMV1014_REG_IF_AMP;
-		mask = ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
-		data_shift = 4;
-		break;
-	case IF_AMP_FINE_GAIN_Q:
-		reg = ADMV1014_REG_IF_AMP;
-		mask = ADMV1014_IF_AMP_FINE_GAIN_Q_MSK;
-		break;
-	case LOAMP_PH_ADJ_I_FINE:
-		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
-		mask = ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK;
-		data_shift = 9;
-		break;
-	case LOAMP_PH_ADJ_Q_FINE:
-		reg = ADMV1014_REG_LO_AMP_PHASE_ADJUST1;
-		mask = ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK;
-		data_shift = 2;
-		break;
-	case MIXER_VGATE:
-		reg = ADMV1014_REG_MIXER;
-		mask = ADMV1014_MIXER_VGATE_MSK;
-		data_shift = 9;
-		break;
 	case DET_PROG:
 		reg = ADMV1014_REG_MIXER;
 		mask = ADMV1014_DET_PROG_MSK;
@@ -389,54 +462,12 @@ static ssize_t admv1014_show(struct device *device,
 	return sprintf(buf, "%d\n", val);
 }
 
-static IIO_DEVICE_ATTR(if_amp_coarse_gain_i, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       IF_AMP_COARSE_GAIN_I);
-
-static IIO_DEVICE_ATTR(if_amp_coarse_gain_q, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       IF_AMP_COARSE_GAIN_Q);
-
-static IIO_DEVICE_ATTR(if_amp_fine_gain_i, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       IF_AMP_FINE_GAIN_I);
-
-static IIO_DEVICE_ATTR(if_amp_fine_gain_q, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       IF_AMP_FINE_GAIN_Q);
-
-static IIO_DEVICE_ATTR(loamp_ph_adj_i_fine, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       LOAMP_PH_ADJ_I_FINE);
-
-static IIO_DEVICE_ATTR(loamp_ph_adj_q_fine, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       LOAMP_PH_ADJ_Q_FINE);
-
-static IIO_DEVICE_ATTR(mixer_vgate, 0644,
-		       admv1014_show,
-		       admv1014_store,
-		       MIXER_VGATE);
-
 static IIO_DEVICE_ATTR(det_prog, 0644,
 		       admv1014_show,
 		       admv1014_store,
 		       DET_PROG);
 
 static struct attribute *admv1014_attributes[] = {
-	&iio_dev_attr_if_amp_coarse_gain_i.dev_attr.attr,
-	&iio_dev_attr_if_amp_coarse_gain_q.dev_attr.attr,
-	&iio_dev_attr_if_amp_fine_gain_i.dev_attr.attr,
-	&iio_dev_attr_if_amp_fine_gain_q.dev_attr.attr,
-	&iio_dev_attr_loamp_ph_adj_i_fine.dev_attr.attr,
-	&iio_dev_attr_loamp_ph_adj_q_fine.dev_attr.attr,
-	&iio_dev_attr_mixer_vgate.dev_attr.attr,
 	&iio_dev_attr_det_prog.dev_attr.attr,
 	NULL
 };
@@ -462,6 +493,8 @@ static int admv1014_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info admv1014_info = {
+	.read_raw = admv1014_read_raw,
+	.write_raw = admv1014_write_raw,
 	.debugfs_reg_access = &admv1014_reg_access,
 	.attrs = &admv1014_attribute_group,
 };
@@ -483,6 +516,24 @@ static void admv1014_clk_notifier_unreg(void *data)
 
 	clk_notifier_unregister(dev->clkin, &dev->nb);
 }
+
+
+#define ADMV1014_CHAN(_channel, rf_comp) {			\
+	.type = IIO_ALTVOLTAGE,					\
+	.modified = 1,						\
+	.output = 1,						\
+	.indexed = 1,						\
+	.channel2 = IIO_MOD_##rf_comp,				\
+	.channel = _channel,					\
+	.info_mask_separate = BIT(IIO_CHAN_INFO_HARDWAREGAIN) | \
+		BIT(IIO_CHAN_INFO_PHASE) |			\
+		BIT(IIO_CHAN_INFO_OFFSET)			\
+	}
+
+static const struct iio_chan_spec admv1014_channels[] = {
+	ADMV1014_CHAN(0, I),
+	ADMV1014_CHAN(0, Q),
+};
 
 static int admv1014_init(struct spi_device *spi)
 {
@@ -551,6 +602,12 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
+	ret = admv1014_update_vcm_settings(dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Update Quad Filters failed.\n");
+		return ret;
+	}
+
 	return admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE, ADMV1014_IBIAS_PD_MSK |
 					ADMV1014_P1DB_COMPENSATION_MSK |
 					ADMV1014_IF_AMP_PD_MSK |
@@ -572,6 +629,11 @@ static int admv1014_init(struct spi_device *spi)
 static void admv1014_clk_disable(void *data)
 {
 	clk_disable_unprepare(data);
+}
+
+static void admv1013_reg_disable(void *data)
+{
+	regulator_disable(data);
 }
 
 static int admv1014_probe(struct spi_device *spi)
@@ -608,11 +670,28 @@ static int admv1014_probe(struct spi_device *spi)
 		return ret;
 	}
 
+	dev->reg = devm_regulator_get(&spi->dev, "vcm");
+	if (IS_ERR(dev->reg))
+		return PTR_ERR(dev->reg);
+
+	ret = regulator_enable(dev->reg);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Failed to enable specified Common-Mode Voltage!\n");
+		return ret;
+	}
+
+	ret = devm_add_action_or_reset(&spi->dev, admv1013_reg_disable,
+					dev->reg);
+	if (ret < 0)
+		return ret;
+
 	spi_set_drvdata(spi, indio_dev);
 
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1014_info;
 	indio_dev->name = "admv1014";
+	indio_dev->channels = admv1014_channels;
+	indio_dev->num_channels = ARRAY_SIZE(admv1014_channels);
 
 	dev->spi = spi;
 

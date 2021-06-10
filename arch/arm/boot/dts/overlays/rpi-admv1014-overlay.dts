@@ -30,6 +30,19 @@
 	};
 
 	fragment@2 {
+		target-path = "/";
+		__overlay__ {
+			vcm: fixedregulator@0 {
+				compatible = "regulator-fixed";
+				regulator-name = "vcm";
+				regulator-min-microvolt = <1050000>;
+				regulator-max-microvolt = <1050000>;
+				regulator-boot-on;
+			};
+		};
+	};
+
+	fragment@3 {
 		target = <&spi0>;
 
 		__overlay__{
@@ -43,6 +56,7 @@
 				spi-max-frequency = <1000000>;
 				clocks = <&admv1014_lo 3>;
 				clock-names = "lo_in";
+				adi,vcm-mv = <&vcm>;
 				adi,quad-se-mode = <0>;
 				adi,parity-en;
 				adi,p1db-comp = <3>;
