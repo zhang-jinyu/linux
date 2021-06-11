@@ -126,7 +126,7 @@ enum supported_parts {
 struct admv1014_dev {
 	struct spi_device	*spi;
 	struct clk		*clkin;
-	struct clock_scale	*clkscale;
+	struct clock_scale	clkscale;
 	struct notifier_block	nb;
 	struct mutex		lock;
 	struct regulator	*reg;
@@ -243,12 +243,12 @@ static int admv1014_update_quad_filters(struct admv1014_dev *dev)
 {
 	unsigned int filt_raw;
 
-	if (dev->clkin_freq <= 6600000000 && dev->clkin_freq <= 9200000000)
-		filt_raw = 5;
-	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 8000000000)
-		filt_raw = 10;
-	else if (dev->clkin_freq <= 5400000000 && dev->clkin_freq <= 7000000000)
+	if (dev->clkin_freq >= 5400000000 && dev->clkin_freq <= 7000000000)
 		filt_raw = 15;
+	else if (dev->clkin_freq >= 5400000000 && dev->clkin_freq <= 8000000000)
+		filt_raw = 10;
+	else if (dev->clkin_freq >= 6600000000 && dev->clkin_freq <= 9200000000)
+		filt_raw = 5;
 	else
 		filt_raw = 0;
 
@@ -266,7 +266,7 @@ static int admv1014_update_vcm_settings(struct admv1014_dev *dev)
 	for (i = 0; i < 16; i++) {
 		vcm_comp = 1050 + (i * 50);
 		if (vcm_mv == vcm_comp) {
-			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER, 
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER,
 							ADMV1014_MIXER_VGATE_MSK,
 							ADMV1014_MIXER_VGATE(mixer_vgate_table[i]));
 			if (ret < 0)
@@ -277,8 +277,9 @@ static int admv1014_update_vcm_settings(struct admv1014_dev *dev)
 							ADMV1014_BB_AMP_REF_GEN(i));
 			if (ret < 0)
 				return ret;
-			
-			bb_sw_high_low_cm = !(i / 2);
+
+			bb_sw_high_low_cm = ~(i / 2);
+
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
 							ADMV1014_BB_SWITCH_HIGH_LOW_CM_MSK,
 							ADMV1014_BB_SWITCH_HIGH_LOW_CM(bb_sw_high_low_cm));
@@ -313,7 +314,7 @@ static int admv1014_read_raw(struct iio_dev *indio_dev,
 		if (ret < 0)
 			return ret;
 
-		if(chan->channel2 == IIO_MOD_I)
+		if (chan->channel2 == IIO_MOD_I)
 			*val = data & ADMV1014_BB_AMP_OFFSET_I_MSK;
 		else
 			*val = (data & ADMV1014_BB_AMP_OFFSET_Q_MSK) >> 5;
@@ -324,7 +325,7 @@ static int admv1014_read_raw(struct iio_dev *indio_dev,
 		if (ret < 0)
 			return ret;
 
-		if(chan->channel2 == IIO_MOD_I)
+		if (chan->channel2 == IIO_MOD_I)
 			*val = (data & ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK) >> 9;
 		else
 			*val = (data & ADMV1014_LOAMP_PH_ADJ_Q_FINE_MSK) >> 2;
@@ -343,15 +344,14 @@ static int admv1014_write_raw(struct iio_dev *indio_dev,
 
 	switch (info) {
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		if (chan->channel2 == IIO_MOD_I) {
+		if (chan->channel2 == IIO_MOD_I)
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
 							ADMV1014_IF_AMP_FINE_GAIN_I_MSK,
-							ADMV1014_IF_AMP_FINE_GAIN_I(val2));
-		} else {
+							ADMV1014_IF_AMP_FINE_GAIN_I(val));
+		else
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
 							ADMV1014_IF_AMP_FINE_GAIN_Q_MSK,
-							ADMV1014_IF_AMP_FINE_GAIN_Q(val2));
-		}
+							ADMV1014_IF_AMP_FINE_GAIN_Q(val));
 	case IIO_CHAN_INFO_OFFSET:
 		if (chan->channel2 == IIO_MOD_I)
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
@@ -362,7 +362,7 @@ static int admv1014_write_raw(struct iio_dev *indio_dev,
 							ADMV1014_BB_AMP_OFFSET_Q_MSK,
 							ADMV1014_BB_AMP_OFFSET_Q(val));
 	case IIO_CHAN_INFO_PHASE:
-		if(chan->channel2 == IIO_MOD_I)
+		if (chan->channel2 == IIO_MOD_I)
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_LO_AMP_PHASE_ADJUST1,
 							ADMV1014_LOAMP_PH_ADJ_I_FINE_MSK,
 							ADMV1014_LOAMP_PH_ADJ_I_FINE(val));
@@ -403,7 +403,7 @@ static int admv1014_freq_change(struct notifier_block *nb, unsigned long flags, 
 	struct clk_notifier_data *cnd = data;
 
 	/* cache the new rate */
-	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, dev->clkscale);
+	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, &dev->clkscale);
 
 	return notifier_from_errno(admv1014_update_quad_filters(dev));
 }
@@ -570,7 +570,6 @@ static int admv1014_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
 	struct admv1014_dev *dev;
-	struct clock_scale dev_clkscale;
 	int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
@@ -649,11 +648,10 @@ static int admv1014_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
-	of_clk_get_scale(spi->dev.of_node, "lo_in", &dev_clkscale);
+	of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
 
-	dev->clkscale = &dev_clkscale;
+	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, &dev->clkscale);
 
-	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, dev->clkscale);
 	dev->nb.notifier_call = admv1014_freq_change;
 	ret = clk_notifier_register(dev->clkin, &dev->nb);
 	if (ret)
