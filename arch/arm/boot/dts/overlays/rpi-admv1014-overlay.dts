@@ -63,8 +63,6 @@
 				adi,p1db-comp = <3>;
 				adi,det-prog = <4>;
 				adi,bb-amp-gain-ctrl = <0>;
-				adi,if-amp-coarse-gain-i = <3>;
-				adi,if-amp-coarse-gain-q = <3>;
 			};
 		};
 	};

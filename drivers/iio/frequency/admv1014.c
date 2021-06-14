@@ -135,8 +135,6 @@ struct admv1014_dev {
 	unsigned int		p1db_comp;
 	unsigned int		det_prog;
 	unsigned int		bb_amp_gain_ctrl;
-	unsigned int		if_amp_coarse_gain_i;
-	unsigned int		if_amp_coarse_gain_q;
 	bool			parity_en;
 	bool			ibias_pd;
 	bool			if_amp_pd;
@@ -299,16 +297,29 @@ static int admv1014_read_raw(struct iio_dev *indio_dev,
 
 	switch (info) {
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP, &data);
-		if (ret < 0)
-			return ret;
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP, &data);
+			if (ret < 0)
+				return ret;
 
-		if (chan->channel2 == IIO_MOD_I)
-			*val = data & ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
-		else
-			*val = (data & ADMV1014_IF_AMP_FINE_GAIN_Q_MSK) >> 4;
+			*val = (data & ADMV1014_IF_AMP_COARSE_GAIN_I_MSK) >> 8;
 
-		return IIO_VAL_INT;
+			*val2 = data & ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
+		} else {
+			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP_BB_AMP, &data);
+			if (ret < 0)
+				return ret;
+
+			*val = (data & ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK) >> 12;
+
+			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP, &data);
+			if (ret < 0)
+				return ret;
+
+			*val2 = (data & ADMV1014_IF_AMP_FINE_GAIN_Q_MSK) >> 4;
+		}
+
+		return IIO_VAL_INT_MULTIPLE;
 	case IIO_CHAN_INFO_OFFSET:
 		ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP_BB_AMP, &data);
 		if (ret < 0)
@@ -341,17 +352,37 @@ static int admv1014_write_raw(struct iio_dev *indio_dev,
 			     int val, int val2, long info)
 {
 	struct admv1014_dev *dev = iio_priv(indio_dev);
+	int ret;
 
 	switch (info) {
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		if (chan->channel2 == IIO_MOD_I)
+
+		val2 /= 100000;
+
+		if (val < 0 || val > 15 || val2 < 0 || val2 > 9)
+			return -EINVAL;
+
+		if (chan->channel2 == IIO_MOD_I) {
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
+							ADMV1014_IF_AMP_COARSE_GAIN_I_MSK,
+							ADMV1014_IF_AMP_COARSE_GAIN_I(val));
+			if (ret < 0)
+				return ret;
+
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
 							ADMV1014_IF_AMP_FINE_GAIN_I_MSK,
-							ADMV1014_IF_AMP_FINE_GAIN_I(val));
-		else
+							ADMV1014_IF_AMP_FINE_GAIN_I(val2));
+		} else {
+			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
+							ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK,
+							ADMV1014_IF_AMP_COARSE_GAIN_Q(val));
+			if (ret < 0)
+				return ret;
+
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
 							ADMV1014_IF_AMP_FINE_GAIN_Q_MSK,
-							ADMV1014_IF_AMP_FINE_GAIN_Q(val));
+							ADMV1014_IF_AMP_FINE_GAIN_Q(val2));
+		}
 	case IIO_CHAN_INFO_OFFSET:
 		if (chan->channel2 == IIO_MOD_I)
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
@@ -510,22 +541,6 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
-				 ADMV1014_IF_AMP_COARSE_GAIN_I_MSK,
-				 ADMV1014_IF_AMP_COARSE_GAIN_I(dev->if_amp_coarse_gain_i));
-	if (ret < 0) {
-		dev_err(&spi->dev, "Writing Digital IF Amp Step Gain I failed.\n");
-		return ret;
-	}
-
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
-				 ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK,
-				 ADMV1014_IF_AMP_COARSE_GAIN_Q(dev->if_amp_coarse_gain_q));
-	if (ret < 0) {
-		dev_err(&spi->dev, "Writing Digital IF Amp Step Gain Q failed.\n");
-		return ret;
-	}
-
 	ret = admv1014_update_quad_filters(dev);
 	if (ret < 0) {
 		dev_err(&spi->dev, "Update Quad Filters failed.\n");
@@ -602,14 +617,6 @@ static int admv1014_probe(struct spi_device *spi)
 	ret = of_property_read_u32(spi->dev.of_node, "adi,bb-amp-gain-ctrl", &dev->bb_amp_gain_ctrl);
 	if (ret < 0)
 		dev->bb_amp_gain_ctrl = 0;
-
-	ret = of_property_read_u32(spi->dev.of_node, "adi,if-amp-coarse-gain-i", &dev->if_amp_coarse_gain_i);
-	if (ret < 0)
-		dev->if_amp_coarse_gain_i = 0;
-
-	ret = of_property_read_u32(spi->dev.of_node, "adi,if-amp-coarse-gain-q", &dev->if_amp_coarse_gain_q);
-	if (ret < 0)
-		dev->if_amp_coarse_gain_q = 0;
 
 	dev->reg = devm_regulator_get(&spi->dev, "vcm");
 	if (IS_ERR(dev->reg))
