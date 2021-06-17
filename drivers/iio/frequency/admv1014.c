@@ -128,6 +128,7 @@ struct admv1014_dev {
 	struct clk		*clkin;
 	struct clock_scale	clkscale;
 	struct notifier_block	nb;
+	/* Protect against concurrent accesses to the device */
 	struct mutex		lock;
 	struct regulator	*reg;
 	u64			clkin_freq;
@@ -143,7 +144,6 @@ struct admv1014_dev {
 	bool			quad_ibias_pd;
 	bool			det_en;
 	bool			bg_pd;
-	u8			data[3];
 };
 
 static const int mixer_vgate_table[] = {106, 107, 108, 110, 111, 112, 113, 114, 117, 118, 119, 120, 122, 123, 44, 45};
@@ -153,27 +153,23 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 {
 	int ret;
 	unsigned int cnt, temp;
-	struct spi_message m;
 	struct spi_transfer t = {0};
+	u8 data[3];
 
-	dev->data[0] = 0x80 | (reg << 1);
-	dev->data[1] = 0x0;
-	dev->data[2] = 0x0;
+	data[0] = 0x80 | (reg << 1);
+	data[1] = 0x0;
+	data[2] = 0x0;
 
-	t.rx_buf = dev->data;
-	t.tx_buf = dev->data;
+	t.rx_buf = &data[0];
+	t.tx_buf = &data[0];
 	t.len = 3;
 
-	spi_message_init_with_transfers(&m, &t, 1);
-
-	ret = spi_sync(dev->spi, &m);
-
+	ret = spi_sync_transfer(dev->spi, &t, 1);
 	if (ret < 0)
 		return ret;
 
-	temp = ((dev->data[0] | 0x80 | (reg << 1)) << 16) |
-		(dev->data[1] << 8) |
-		dev->data[2];
+	temp = ((data[0] | 0x80 | (reg << 1)) << 16) |
+		(data[1] << 8) | data[2];
 
 	if (dev->parity_en) {
 		cnt = hweight_long(temp);
@@ -187,12 +183,11 @@ static int admv1014_spi_read(struct admv1014_dev *dev, unsigned int reg,
 }
 
 static int admv1014_spi_write(struct admv1014_dev *dev,
-				      unsigned int reg,
-				      unsigned int val)
+				unsigned int reg,
+				unsigned int val)
 {
 	unsigned int cnt;
-	struct spi_message m;
-	struct spi_transfer t = {0};
+	u8 data[3];
 
 	val = (val << 1);
 
@@ -202,38 +197,36 @@ static int admv1014_spi_write(struct admv1014_dev *dev,
 			val |= 0x1;
 	}
 
-	t.tx_buf = dev->data;
-	t.len = 3;
+	data[0] = (reg << 1) | (val >> 16);
+	data[1] = val >> 8;
+	data[2] = val;
 
-	dev->data[0] = (reg << 1) | (val >> 16);
-	dev->data[1] = val >> 8;
-	dev->data[2] = val;
+	return spi_write(dev->spi, &data[0], 3);
+}
 
-	spi_message_init(&m);
-	spi_message_add_tail(&t, &m);
+static int __admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
+			       unsigned int mask, unsigned int val)
+{
+	int ret;
+	unsigned int data, temp;
 
-	return spi_sync(dev->spi, &m);
+	ret = admv1014_spi_read(dev, reg, &data);
+	if (ret < 0)
+		return ret;
+
+	temp = (data & ~mask) | (val & mask);
+
+	return admv1014_spi_write(dev, reg, temp);
 }
 
 static int admv1014_spi_update_bits(struct admv1014_dev *dev, unsigned int reg,
 			       unsigned int mask, unsigned int val)
 {
 	int ret;
-	unsigned int data, temp;
 
 	mutex_lock(&dev->lock);
-	ret = admv1014_spi_read(dev, reg, &data);
-	if (ret < 0)
-		goto exit;
-
-	temp = data & ~mask;
-	temp |= val & mask;
-
-	ret = admv1014_spi_write(dev, reg, temp);
-
-exit:
+	ret = __admv1014_spi_update_bits(dev, reg, mask, val);
 	mutex_unlock(&dev->lock);
-
 	return ret;
 }
 
@@ -261,25 +254,21 @@ static int admv1014_update_vcm_settings(struct admv1014_dev *dev)
 	int ret;
 
 	vcm_mv = regulator_get_voltage(dev->reg) / 1000;
-	for (i = 0; i < 16; i++) {
+	for (i = 0; i < ARRAY_SIZE(mixer_vgate_table); i++) {
 		vcm_comp = 1050 + (i * 50);
 		if (vcm_mv == vcm_comp) {
-			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER,
+			ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER,
 							ADMV1014_MIXER_VGATE_MSK,
 							ADMV1014_MIXER_VGATE(mixer_vgate_table[i]));
 			if (ret < 0)
 				return ret;
 
-			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
-							ADMV1014_BB_AMP_REF_GEN_MSK,
-							ADMV1014_BB_AMP_REF_GEN(i));
-			if (ret < 0)
-				return ret;
-
 			bb_sw_high_low_cm = ~(i / 2);
 
-			return admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
+			ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
+							ADMV1014_BB_AMP_REF_GEN_MSK |
 							ADMV1014_BB_SWITCH_HIGH_LOW_CM_MSK,
+							ADMV1014_BB_AMP_REF_GEN(i) |
 							ADMV1014_BB_SWITCH_HIGH_LOW_CM(bb_sw_high_low_cm));
 		}
 	}
@@ -303,7 +292,6 @@ static int admv1014_read_raw(struct iio_dev *indio_dev,
 				return ret;
 
 			*val = (data & ADMV1014_IF_AMP_COARSE_GAIN_I_MSK) >> 8;
-
 			*val2 = data & ADMV1014_IF_AMP_FINE_GAIN_I_MSK;
 		} else {
 			ret = admv1014_spi_read(dev, ADMV1014_REG_IF_AMP_BB_AMP, &data);
@@ -356,33 +344,31 @@ static int admv1014_write_raw(struct iio_dev *indio_dev,
 
 	switch (info) {
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-
+		val = clamp_val(val, 0, 15);
 		val2 /= 100000;
-
-		if (val < 0 || val > 15 || val2 < 0 || val2 > 9)
-			return -EINVAL;
+		val2 = clamp_val(val2, 0, 9);
 
 		if (chan->channel2 == IIO_MOD_I) {
 			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
-							ADMV1014_IF_AMP_COARSE_GAIN_I_MSK,
-							ADMV1014_IF_AMP_COARSE_GAIN_I(val));
-			if (ret < 0)
-				return ret;
-
-			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
+							ADMV1014_IF_AMP_COARSE_GAIN_I_MSK |
 							ADMV1014_IF_AMP_FINE_GAIN_I_MSK,
+							ADMV1014_IF_AMP_COARSE_GAIN_I(val) |
 							ADMV1014_IF_AMP_FINE_GAIN_I(val2));
 		} else {
-			ret = admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
+			mutex_lock(&dev->lock);
+			ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
 							ADMV1014_IF_AMP_COARSE_GAIN_Q_MSK,
 							ADMV1014_IF_AMP_COARSE_GAIN_Q(val));
 			if (ret < 0)
 				return ret;
 
-			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
+			ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP,
 							ADMV1014_IF_AMP_FINE_GAIN_Q_MSK,
 							ADMV1014_IF_AMP_FINE_GAIN_Q(val2));
+			mutex_unlock(&dev->lock);
 		}
+
+		return ret;
 	case IIO_CHAN_INFO_OFFSET:
 		if (chan->channel2 == IIO_MOD_I)
 			return admv1014_spi_update_bits(dev, ADMV1014_REG_IF_AMP_BB_AMP,
@@ -464,18 +450,17 @@ static const struct iio_chan_spec admv1014_channels[] = {
 	ADMV1014_CHAN(0, Q),
 };
 
-static int admv1014_init(struct spi_device *spi)
+static int admv1014_init(struct admv1014_dev *dev)
 {
-	struct iio_dev *indio_dev = spi_get_drvdata(spi);
-	struct admv1014_dev *dev = iio_priv(indio_dev);
 	int ret;
-	unsigned int chip_id;
+	unsigned int chip_id, enable_reg, enable_reg_msk;
+	struct spi_device *spi = dev->spi;
 	bool temp_parity = dev->parity_en;
 
 	dev->parity_en = false;
 
 	/* Perform a software reset */
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
+	ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_SPI_SOFT_RESET_MSK,
 				 ADMV1014_SPI_SOFT_RESET(1));
 	if (ret < 0) {
@@ -483,7 +468,7 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
+	ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_SPI_SOFT_RESET_MSK,
 				 ADMV1014_SPI_SOFT_RESET(0));
 	if (ret < 0) {
@@ -491,7 +476,7 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
+	ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_SPI_CONTROL,
 				 ADMV1014_PARITY_EN_MSK,
 				 ADMV1014_PARITY_EN(temp_parity));
 	if (ret < 0) {
@@ -517,7 +502,7 @@ static int admv1014_init(struct spi_device *spi)
 		return -EINVAL;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_QUAD,
+	ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_QUAD,
 				 ADMV1014_QUAD_SE_MODE_MSK,
 				 ADMV1014_QUAD_SE_MODE(dev->quad_se_mode));
 	if (ret < 0) {
@@ -525,7 +510,7 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER,
+	ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_MIXER,
 				 ADMV1014_DET_PROG_MSK,
 				 ADMV1014_DET_PROG(dev->det_prog));
 	if (ret < 0) {
@@ -533,7 +518,7 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
+	ret = __admv1014_spi_update_bits(dev, ADMV1014_REG_BB_AMP_AGC,
 				 ADMV1014_BB_AMP_GAIN_CTRL_MSK,
 				 ADMV1014_BB_AMP_GAIN_CTRL(dev->bb_amp_gain_ctrl));
 	if (ret < 0) {
@@ -553,22 +538,25 @@ static int admv1014_init(struct spi_device *spi)
 		return ret;
 	}
 
-	return admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE, ADMV1014_IBIAS_PD_MSK |
-					ADMV1014_P1DB_COMPENSATION_MSK |
-					ADMV1014_IF_AMP_PD_MSK |
-					ADMV1014_QUAD_BG_PD_MSK |
-					ADMV1014_BB_AMP_PD_MSK |
-					ADMV1014_QUAD_IBIAS_PD_MSK |
-					ADMV1014_DET_EN_MSK |
-					ADMV1014_BG_PD_MSK,
-					ADMV1014_IBIAS_PD(dev->ibias_pd) |
-					ADMV1014_P1DB_COMPENSATION(dev->p1db_comp) |
-					ADMV1014_IF_AMP_PD(dev->if_amp_pd) |
-					ADMV1014_QUAD_BG_PD(dev->quad_bg_pd) |
-					ADMV1014_BB_AMP_PD(dev->bb_amp_pd) |
-					ADMV1014_QUAD_IBIAS_PD(dev->quad_ibias_pd)|
-					ADMV1014_DET_EN(dev->det_en)|
-					ADMV1014_BG_PD(dev->bg_pd));
+	enable_reg_msk = ADMV1014_IBIAS_PD_MSK |
+			ADMV1014_P1DB_COMPENSATION_MSK |
+			ADMV1014_IF_AMP_PD_MSK |
+			ADMV1014_QUAD_BG_PD_MSK |
+			ADMV1014_BB_AMP_PD_MSK |
+			ADMV1014_QUAD_IBIAS_PD_MSK |
+			ADMV1014_DET_EN_MSK |
+			ADMV1014_BG_PD_MSK;
+
+	enable_reg = ADMV1014_IBIAS_PD(dev->ibias_pd) |
+			ADMV1014_P1DB_COMPENSATION(dev->p1db_comp) |
+			ADMV1014_IF_AMP_PD(dev->if_amp_pd) |
+			ADMV1014_QUAD_BG_PD(dev->quad_bg_pd) |
+			ADMV1014_BB_AMP_PD(dev->bb_amp_pd) |
+			ADMV1014_QUAD_IBIAS_PD(dev->quad_ibias_pd)|
+			ADMV1014_DET_EN(dev->det_en)|
+			ADMV1014_BG_PD(dev->bg_pd);
+
+	return __admv1014_spi_update_bits(dev, ADMV1014_REG_ENABLE, enable_reg_msk, enable_reg);
 }
 
 static void admv1014_clk_disable(void *data)
@@ -576,22 +564,15 @@ static void admv1014_clk_disable(void *data)
 	clk_disable_unprepare(data);
 }
 
-static void admv1013_reg_disable(void *data)
+static void admv1014_reg_disable(void *data)
 {
 	regulator_disable(data);
 }
 
-static int admv1014_probe(struct spi_device *spi)
+static int admv1014_dt_parse(struct admv1014_dev *dev)
 {
-	struct iio_dev *indio_dev;
-	struct admv1014_dev *dev;
 	int ret;
-
-	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
-	if (!indio_dev)
-		return -ENOMEM;
-
-	dev = iio_priv(indio_dev);
+	struct spi_device *spi = dev->spi;
 
 	dev->parity_en = of_property_read_bool(spi->dev.of_node, "adi,parity-en");
 	dev->ibias_pd = of_property_read_bool(spi->dev.of_node, "adi,ibias-pd");
@@ -622,18 +603,24 @@ static int admv1014_probe(struct spi_device *spi)
 	if (IS_ERR(dev->reg))
 		return PTR_ERR(dev->reg);
 
-	ret = regulator_enable(dev->reg);
-	if (ret < 0) {
-		dev_err(&spi->dev, "Failed to enable specified Common-Mode Voltage!\n");
-		return ret;
-	}
+	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
+	if (IS_ERR(dev->clkin))
+		return PTR_ERR(dev->clkin);
 
-	ret = devm_add_action_or_reset(&spi->dev, admv1013_reg_disable,
-					dev->reg);
-	if (ret < 0)
-		return ret;
+	return of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
+}
 
-	spi_set_drvdata(spi, indio_dev);
+static int admv1014_probe(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev;
+	struct admv1014_dev *dev;
+	int ret;
+
+	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
+	if (!indio_dev)
+		return -ENOMEM;
+
+	dev = iio_priv(indio_dev);
 
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv1014_info;
@@ -643,9 +630,20 @@ static int admv1014_probe(struct spi_device *spi)
 
 	dev->spi = spi;
 
-	dev->clkin = devm_clk_get(&spi->dev, "lo_in");
-	if (IS_ERR(dev->clkin))
-		return PTR_ERR(dev->clkin);
+	ret = admv1014_dt_parse(dev);
+	if (ret < 0)
+		return ret;
+
+	ret = regulator_enable(dev->reg);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Failed to enable specified Common-Mode Voltage!\n");
+		return ret;
+	}
+
+	ret = devm_add_action_or_reset(&spi->dev, admv1014_reg_disable,
+					dev->reg);
+	if (ret < 0)
+		return ret;
 
 	ret = clk_prepare_enable(dev->clkin);
 	if (ret < 0)
@@ -655,13 +653,11 @@ static int admv1014_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
-	of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
-
 	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, &dev->clkscale);
 
 	dev->nb.notifier_call = admv1014_freq_change;
 	ret = clk_notifier_register(dev->clkin, &dev->nb);
-	if (ret)
+	if (ret < 0)
 		return ret;
 
 	ret = devm_add_action_or_reset(&spi->dev, admv1014_clk_notifier_unreg, dev);
@@ -670,7 +666,7 @@ static int admv1014_probe(struct spi_device *spi)
 
 	mutex_init(&dev->lock);
 
-	ret = admv1014_init(spi);
+	ret = admv1014_init(dev);
 	if (ret < 0)
 		return ret;
 
