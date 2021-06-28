@@ -9,13 +9,11 @@
 #include <linux/bits.h>
 #include <linux/clk.h>
 #include <linux/clkdev.h>
-#include <linux/clk/clkscale.h>
 #include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
-#include <linux/notifier.h>
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
 
@@ -105,11 +103,8 @@ enum supported_parts {
 struct adrf6780_dev {
 	struct spi_device	*spi;
 	struct clk		*clkin;
-	struct clock_scale	clkscale;
 	/* Protect against concurrent accesses to the device */
 	struct mutex		lock;
-	struct notifier_block	nb;
-	u64			clkin_freq;
 	bool			parity_en;
 	bool			vga_buff_en;
 	bool			det_en;
@@ -337,24 +332,6 @@ static const struct iio_info adrf6780_info = {
 	.debugfs_reg_access = &adrf6780_reg_access,
 };
 
-static int adrf6780_freq_change(struct notifier_block *nb, unsigned long flags, void *data)
-{
-	struct adrf6780_dev *dev = container_of(nb, struct adrf6780_dev, nb);
-	struct clk_notifier_data *cnd = data;
-
-	/* cache the new rate */
-	dev->clkin_freq = clk_get_rate_scaled(cnd->clk, &dev->clkscale);
-
-	return notifier_from_errno(0);
-}
-
-static void adrf6780_clk_notifier_unreg(void *data)
-{
-	struct adrf6780_dev *dev = data;
-
-	clk_notifier_unregister(dev->clkin, &dev->nb);
-}
-
 #define ADRF6780_CHAN(_channel) {			\
 	.type = IIO_VOLTAGE,				\
 	.output = 1,					\
@@ -483,7 +460,7 @@ static int adrf6780_dt_parse(struct adrf6780_dev *dev)
 	if (IS_ERR(dev->clkin))
 		return PTR_ERR(dev->clkin);
 
-	return of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
+	return 0;
 }
 
 static int adrf6780_probe(struct spi_device *spi)
@@ -515,17 +492,6 @@ static int adrf6780_probe(struct spi_device *spi)
 		return ret;
 
 	ret = devm_add_action_or_reset(&spi->dev, adrf6780_clk_disable, dev->clkin);
-	if (ret < 0)
-		return ret;
-
-	dev->clkin_freq = clk_get_rate_scaled(dev->clkin, &dev->clkscale);
-
-	dev->nb.notifier_call = adrf6780_freq_change;
-	ret = clk_notifier_register(dev->clkin, &dev->nb);
-	if (ret)
-		return ret;
-
-	ret = devm_add_action_or_reset(&spi->dev, adrf6780_clk_notifier_unreg, dev);
 	if (ret < 0)
 		return ret;
 

@@ -42,7 +42,6 @@
 				reg = <0>;
 				spi-max-frequency = <1000000>;
 				clocks = <&adrf6780_lo>;
-				clock-scales = <1 5>;
 				clock-names = "lo_in";
 				adi,parity-en;
 			};
