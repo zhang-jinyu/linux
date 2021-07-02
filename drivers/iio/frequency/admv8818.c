@@ -44,6 +44,47 @@ struct admv8818_dev {
 	struct regmap		*regmap;
 }
 
+static const struct regmap_config admv8818_regmap_config = {
+	.reg_bits = 15,
+	.val_bits = 8,
+	.read_flag_mask = BIT(15),
+	.max_register = 0x1FF,
+};
+
+static int admv8818_read_raw(struct iio_dev *indio_dev,
+			    struct iio_chan_spec const *chan,
+			    int *val, int *val2, long info)
+{
+	struct admv8818_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		return IIO_VAL_INT;
+	case IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY:
+		return IIO_VAL_INT;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int admv8818_write_raw(struct iio_dev *indio_dev,
+			     struct iio_chan_spec const *chan,
+			     int val, int val2, long info)
+{
+	struct admv8818_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		return ret;
+	case IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY:
+		return ret;
+	default:
+		return -EINVAL;
+	}
+}
+
 static int admv8818_reg_access(struct iio_dev *indio_dev,
 				unsigned int reg,
 				unsigned int write_val,
@@ -58,9 +99,24 @@ static int admv8818_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info admv8818_info = {
+	.read_raw = admv8818_read_raw,
+	.write_raw = admv8818_write_raw,
 	.debugfs_reg_access = &admv8818_reg_access,
 };
 
+#define ADMV8818_CHAN(_channel) {				\
+	.type = IIO_VOLTAGE,					\
+	.output = 1,						\
+	.indexed = 1,						\
+	.channel = _channel,					\
+	.info_mask_separate =					\
+		BIT(IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY), | \
+		BIT(IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY) \
+}
+
+static const struct iio_chan_spec admv8818_channels[] = {
+	ADMV8818_CHAN(0),
+};
 
 static int admv8818_probe(struct spi_device *spi)
 {
@@ -82,16 +138,11 @@ static int admv8818_probe(struct spi_device *spi)
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &admv8818_info;
 	indio_dev->name = "admv8818";
+	indio_dev->channels = admv8818_channels;
+	indio_dev->num_channels = ARRAY_SIZE(admv8818_channels);
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
-
-static const struct regmap_config admv8818_regmap_config = {
-	.reg_bits = 15,
-	.val_bits = 8,
-	.read_flag_mask = BIT(15),
-	.max_register = 0x1FF,
-};
 
 static const struct spi_device_id admv8818_id[] = {
 	{ "admv8818", ADMV8818 },
