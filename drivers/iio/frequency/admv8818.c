@@ -36,9 +36,25 @@
 #define ADMV8818_REG_LUT127_SW			0x1FE
 #define ADMV8818_REG_LUT127_FILTER		0x1FF
 
-enum supported_parts {
-	ADMV8818,
-};
+/* ADMV8818_REG_SPI_CONFIG_A Map */
+#define ADMV8818_SOFTRESET_N_MSK		BIT(7)
+#define ADMV8818_LSB_FIRST_N_MSK		BIT(6)
+#define ADMV8818_ENDIAN_N_MSK			BIT(5)
+#define ADMV8818_SDOACTIVE_N_MSK		BIT(4)
+#define ADMV8818_SDOACTIVE_MSK			BIT(3)
+#define ADMV8818_ENDIAN_MSK			BIT(2)
+#define ADMV8818_LSBFIRST_MSK			BIT(1)
+#define ADMV8818_SOFTRESET_MSK			BIT(0)
+
+/* ADMV8818_REG_WR0_SW Map */
+#define ADMV8818_SW_IN_SET_WR0			BIT(7)
+#define ADMV8818_SW_OUT_SET_WR0			BIT(6)
+#define ADMV8818_SW_IN_WR0			GENMASK(5, 3)
+#define ADMV8818_SW_OUT_WR0			GENMASK(2, 0)
+
+/* ADMV8818_REG_WR0_FILTER Map */
+#define ADMV8818_HPF_WR0			GENMASK(7, 4)
+#define ADMV8818_LPF_WR0			GENMASK(3, 0)
 
 struct admv8818_dev {
 	struct regmap		*regmap;
@@ -145,7 +161,7 @@ static int admv8818_probe(struct spi_device *spi)
 }
 
 static const struct spi_device_id admv8818_id[] = {
-	{ "admv8818", ADMV8818 },
+	{ "admv8818", 0 },
 	{}
 };
 MODULE_DEVICE_TABLE(spi, admv8818_id);
