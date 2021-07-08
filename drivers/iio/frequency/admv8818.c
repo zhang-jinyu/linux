@@ -12,6 +12,7 @@
 #include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
+#include <linux/module.h>
 #include <linux/regmap.h>
 #include <linux/spi/spi.h>
 
@@ -64,20 +65,20 @@
 struct admv8818_dev {
 	struct regmap		*regmap;
 	struct clk		*clkin;
-}
-
-u64 freq_range_hpf[4][2] = {
-	{1750000000, 3550000000},
-	{3400000000, 7250000000},
-	{6600000000, 12000000000},
-	{12500000000, 19900000000},
 };
 
-u64 freq_range_lpf[4][2] = {
-	{2050000000, 3850000000},
-	{3350000000, 7250000000},
-	{7000000000, 13000000000},
-	{12550000000, 18500000000},
+unsigned long long freq_range_hpf[4][2] = {
+	{1750000000ull, 3550000000ull},
+	{3400000000ull, 7250000000ull},
+	{6600000000ull, 12000000000ull},
+	{12500000000ull, 19900000000ull}
+};
+
+unsigned long long freq_range_lpf[4][2] = {
+	{2050000000ull, 3850000000ull},
+	{3350000000ull, 7250000000ull},
+	{7000000000ull, 13000000000ull},
+	{12550000000ull, 18500000000ull}
 };
 
 static const struct regmap_config admv8818_regmap_config = {
@@ -91,6 +92,7 @@ static int admv8818_rfin_band_select(struct admv8818_dev *dev)
 {
 	unsigned int hpf_step, lpf_step, hpf_band, lpf_band, i, j;
 	u64 freq_step;
+	int ret;
 
 	u64 rate = clk_get_rate(dev->clkin);
 
@@ -110,6 +112,7 @@ static int admv8818_rfin_band_select(struct admv8818_dev *dev)
 			for (j = 0; j < 16; j++)
 				if(rate < (freq_range_hpf[i][0] + (freq_step * j)))
 					hpf_step = j - 1;
+		}
 	}
 
 	for (i = 0; i < 4; i++) {
@@ -120,6 +123,7 @@ static int admv8818_rfin_band_select(struct admv8818_dev *dev)
 			for (j = 0; j < 16; j++)
 				if(rate < (freq_range_lpf[i][0] + (freq_step * j)))
 					lpf_step = j;
+		}
 	}
 
 reg_write:
@@ -140,8 +144,6 @@ static int admv8818_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
 			    int *val, int *val2, long info)
 {
-	struct admv8818_dev *dev = iio_priv(indio_dev);
-	int ret;
 
 	switch (info) {
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
@@ -157,7 +159,6 @@ static int admv8818_write_raw(struct iio_dev *indio_dev,
 			     struct iio_chan_spec const *chan,
 			     int val, int val2, long info)
 {
-	struct admv8818_dev *dev = iio_priv(indio_dev);
 	int ret;
 
 	switch (info) {
@@ -195,7 +196,7 @@ static const struct iio_info admv8818_info = {
 	.indexed = 1,						\
 	.channel = _channel,					\
 	.info_mask_separate =					\
-		BIT(IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY), | \
+		BIT(IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY) | \
 		BIT(IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY) \
 }
 
@@ -213,6 +214,7 @@ static int admv8818_probe(struct spi_device *spi)
 	struct iio_dev *indio_dev;
 	struct regmap *regmap;
 	struct admv8818_dev *dev;
+	int ret;
 
 	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
 	if (!indio_dev)
@@ -240,11 +242,15 @@ static int admv8818_probe(struct spi_device *spi)
 		return PTR_ERR(dev->clkin);
 
 	ret = clk_prepare_enable(dev->clkin);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	ret = devm_add_action_or_reset(&spi->dev, admv8818_clk_disable, dev->clkin);
-	if (ret < 0)
+	if (ret)
+		return ret;
+	
+	ret = admv8818_rfin_band_select(dev);
+	if (ret)
 		return ret;
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
@@ -258,15 +264,15 @@ MODULE_DEVICE_TABLE(spi, admv8818_id);
 
 static const struct of_device_id admv8818_of_match[] = {
 	{ .compatible = "adi,admv8818" },
-	{},
+	{}
 };
 MODULE_DEVICE_TABLE(of, admv8818_of_match);
 
 static struct spi_driver admv8818_driver = {
 	.driver = {
-			.name = "admv8818",
-			.of_match_table = admv8818_of_match,
-		},
+		.name = "admv8818",
+		.of_match_table = admv8818_of_match,
+	},
 	.probe = admv8818_probe,
 	.id_table = admv8818_id,
 };
