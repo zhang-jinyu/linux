@@ -5,6 +5,11 @@
  * Copyright 2021 Analog Devices Inc.
  */
 
+#include <linux/bitfield.h>
+#include <linux/bits.h>
+#include <linux/clk.h>
+#include <linux/clkdev.h>
+#include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/regmap.h>
@@ -47,18 +52,33 @@
 #define ADMV8818_SOFTRESET_MSK			BIT(0)
 
 /* ADMV8818_REG_WR0_SW Map */
-#define ADMV8818_SW_IN_SET_WR0			BIT(7)
-#define ADMV8818_SW_OUT_SET_WR0			BIT(6)
-#define ADMV8818_SW_IN_WR0			GENMASK(5, 3)
-#define ADMV8818_SW_OUT_WR0			GENMASK(2, 0)
+#define ADMV8818_SW_IN_SET_WR0_MSK		BIT(7)
+#define ADMV8818_SW_OUT_SET_WR0_MSK		BIT(6)
+#define ADMV8818_SW_IN_WR0_MSK			GENMASK(5, 3)
+#define ADMV8818_SW_OUT_WR0_MSK			GENMASK(2, 0)
 
 /* ADMV8818_REG_WR0_FILTER Map */
-#define ADMV8818_HPF_WR0			GENMASK(7, 4)
-#define ADMV8818_LPF_WR0			GENMASK(3, 0)
+#define ADMV8818_HPF_WR0_MSK			GENMASK(7, 4)
+#define ADMV8818_LPF_WR0_MSK			GENMASK(3, 0)
 
 struct admv8818_dev {
 	struct regmap		*regmap;
+	struct clk		*clkin;
 }
+
+u64 freq_range_hpf[4][2] = {
+	{1750000000, 3550000000},
+	{3400000000, 7250000000},
+	{6600000000, 12000000000},
+	{12500000000, 19900000000},
+};
+
+u64 freq_range_lpf[4][2] = {
+	{2050000000, 3850000000},
+	{3350000000, 7250000000},
+	{7000000000, 13000000000},
+	{12550000000, 18500000000},
+};
 
 static const struct regmap_config admv8818_regmap_config = {
 	.reg_bits = 15,
@@ -66,6 +86,55 @@ static const struct regmap_config admv8818_regmap_config = {
 	.read_flag_mask = BIT(15),
 	.max_register = 0x1FF,
 };
+
+static int admv8818_rfin_band_select(struct admv8818_dev *dev)
+{
+	unsigned int hpf_step, lpf_step, hpf_band, lpf_band, i, j;
+	u64 freq_step;
+
+	u64 rate = clk_get_rate(dev->clkin);
+
+	if (rate < freq_range_hpf[0][0] || rate > freq_range_lpf[3][3]) {
+		hpf_band = 0;
+		lpf_band = 0;
+		hpf_step = 0;
+		lpf_step = 0;
+		goto reg_write;
+	}
+
+	for (i = 0; i < 4; i++) {
+		if (rate > freq_range_hpf[i][0] && rate <freq_range_hpf[i][0]) {
+			hpf_band = i + 1;
+			freq_step = (freq_range_hpf[i][0] - freq_range_hpf[i][0]) / 16;
+
+			for (j = 0; j < 16; j++)
+				if(rate < (freq_range_hpf[i][0] + (freq_step * j)))
+					hpf_step = j - 1;
+	}
+
+	for (i = 0; i < 4; i++) {
+		if (rate > freq_range_lpf[i][0] && rate <freq_range_lpf[i][0]) {
+			lpf_band = i + 1;
+			freq_step = (freq_range_lpf[i][0] - freq_range_lpf[i][0]) / 16;
+
+			for (j = 0; j < 16; j++)
+				if(rate < (freq_range_lpf[i][0] + (freq_step * j)))
+					lpf_step = j;
+	}
+
+reg_write:
+	ret = regmap_write(dev->regmap, ADMV8818_REG_WR0_FILTER,
+				FIELD_PREP(ADMV8818_HPF_WR0_MSK, hpf_step) |
+				FIELD_PREP(ADMV8818_LPF_WR0_MSK, lpf_step));
+	if (ret)
+		return ret;
+
+	return regmap_write(dev->regmap, ADMV8818_REG_WR0_SW,
+				FIELD_PREP(ADMV8818_SW_IN_SET_WR0_MSK, 1) |
+				FIELD_PREP(ADMV8818_SW_OUT_SET_WR0_MSK, 1) |
+				FIELD_PREP(ADMV8818_SW_IN_WR0_MSK, hpf_band) |
+				FIELD_PREP(ADMV8818_SW_OUT_WR0_MSK, lpf_band));
+}
 
 static int admv8818_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
@@ -134,6 +203,11 @@ static const struct iio_chan_spec admv8818_channels[] = {
 	ADMV8818_CHAN(0),
 };
 
+static void admv8818_clk_disable(void *data)
+{
+	clk_disable_unprepare(data);
+}
+
 static int admv8818_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
@@ -156,6 +230,22 @@ static int admv8818_probe(struct spi_device *spi)
 	indio_dev->name = "admv8818";
 	indio_dev->channels = admv8818_channels;
 	indio_dev->num_channels = ARRAY_SIZE(admv8818_channels);
+
+	ret = clk_prepare_enable(dev->clkin);
+	if (ret < 0)
+		return ret;
+
+	dev->clkin = devm_clk_get(&spi->dev, "rf_in");
+	if (IS_ERR(dev->clkin))
+		return PTR_ERR(dev->clkin);
+
+	ret = clk_prepare_enable(dev->clkin);
+	if (ret < 0)
+		return ret;
+
+	ret = devm_add_action_or_reset(&spi->dev, admv8818_clk_disable, dev->clkin);
+	if (ret < 0)
+		return ret;
 
 	return devm_iio_device_register(&spi->dev, indio_dev);
 }
