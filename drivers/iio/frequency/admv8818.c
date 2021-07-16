@@ -336,7 +336,10 @@ static int admv8818_init(struct admv8818_dev *dev)
 					ADMV8818_SINGLE_INSTRUCTION_MSK,
 					FIELD_PREP(ADMV8818_SINGLE_INSTRUCTION_MSK, 1));
 
-	return admv8818_rfin_band_select(dev);
+	if(!(dev->clkin))
+		return admv8818_rfin_band_select(dev);
+	else
+		return ret;
 }
 
 static int admv8818_probe(struct spi_device *spi)
@@ -365,9 +368,9 @@ static int admv8818_probe(struct spi_device *spi)
 
 	dev->spi = spi;
 
-	dev->clkin = devm_clk_get(&spi->dev, "rf_in");
-	if (IS_ERR(dev->clkin))
-		return PTR_ERR(dev->clkin);
+	dev->clkin = devm_clk_get_optional(&spi->dev, "rf_in");
+	if (!(dev->clkin))
+		goto exit_clk;
 
 	ret = of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
 	if (ret)
@@ -392,6 +395,7 @@ static int admv8818_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
+exit_clk:
 	ret = admv8818_init(dev);
 	if (ret)
 		return ret;
