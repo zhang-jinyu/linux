@@ -308,7 +308,7 @@ static int admv8818_init(struct admv8818_dev *dev)
 					ADMV8818_SINGLE_INSTRUCTION_MSK,
 					FIELD_PREP(ADMV8818_SINGLE_INSTRUCTION_MSK, 1));
 
-	if(!(dev->clkin))
+	if(dev->clkin)
 		return admv8818_rfin_band_select(dev);
 	else
 		return ret;
