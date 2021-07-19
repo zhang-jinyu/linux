@@ -128,10 +128,6 @@ static int admv8818_hpf_select(struct admv8818_dev *dev, u64 freq)
 
 
 hpf_write:
-	pr_info("hpf_band=%u", hpf_band);
-	pr_info("hpf_step=%u", hpf_step);
-
-
 	ret = regmap_update_bits(dev->regmap, ADMV8818_REG_WR0_SW,
 				ADMV8818_SW_IN_SET_WR0_MSK |
 				ADMV8818_SW_IN_WR0_MSK,
@@ -171,10 +167,6 @@ static int admv8818_lpf_select(struct admv8818_dev *dev, u64 freq)
 		}
 	}
 lpf_write:
-	pr_info("lpf_band=%u", lpf_band);
-	pr_info("lpf_step=%u", lpf_step);
-
-
 	ret = regmap_update_bits(dev->regmap, ADMV8818_REG_WR0_SW,
 				ADMV8818_SW_OUT_SET_WR0_MSK |
 				ADMV8818_SW_OUT_WR0_MSK,
@@ -192,28 +184,11 @@ static int admv8818_rfin_band_select(struct admv8818_dev *dev)
 {
 	int ret;
 
-	pr_info("rate=%llu", dev->clkin_freq);
-
 	ret = admv8818_hpf_select(dev, dev->clkin_freq);
 	if (ret)
 		return ret;
 
 	return admv8818_lpf_select(dev, dev->clkin_freq);
-}
-
-static int admv8818_read_raw(struct iio_dev *indio_dev,
-			    struct iio_chan_spec const *chan,
-			    int *val, int *val2, long info)
-{
-
-	switch (info) {
-	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
-		return IIO_VAL_INT;
-	case IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY:
-		return IIO_VAL_INT;
-	default:
-		return -EINVAL;
-	}
 }
 
 static int admv8818_write_raw(struct iio_dev *indio_dev,
@@ -225,10 +200,8 @@ static int admv8818_write_raw(struct iio_dev *indio_dev,
 
 	switch (info) {
 	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
-		pr_info("freq_lpf=%llu", freq);
 		return admv8818_lpf_select(dev, freq);
 	case IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY:
-		pr_info("freq_hpf=%llu", freq);
 		return admv8818_hpf_select(dev, freq);
 	default:
 		return -EINVAL;
@@ -249,7 +222,6 @@ static int admv8818_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info admv8818_info = {
-	.read_raw = admv8818_read_raw,
 	.write_raw = admv8818_write_raw,
 	.debugfs_reg_access = &admv8818_reg_access,
 };
