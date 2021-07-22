@@ -191,6 +191,53 @@ static int admv8818_rfin_band_select(struct admv8818_dev *dev)
 	return admv8818_lpf_select(dev, dev->clkin_freq);
 }
 
+static int admv8818_read_hpf_freq(struct admv8818_dev *dev, unsigned int *hpf_freq)
+{
+	unsigned int data, hpf_band, hpf_state;
+	int ret;
+
+	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_SW, &data);
+	if (ret)
+		return ret;
+
+	hpf_band = FIELD_GET(ADMV8818_SW_IN_WR0_MSK, data);
+
+	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_FILTER, &data);
+	if (ret)
+		return ret;
+
+	hpf_state = FIELD_GET(ADMV8818_HPF_WR0_MSK, data);
+
+	*hpf_freq = div_u64((freq_range_hpf[hpf_band-1][1] - freq_range_hpf[hpf_band-1][0]), (1000000 * 15));
+	*hpf_freq = div_u64(freq_range_hpf[hpf_band-1][0], 1000000) + (*hpf_freq * hpf_state);
+
+	return 0;
+}
+
+
+static int admv8818_read_lpf_freq(struct admv8818_dev *dev, unsigned int *lpf_freq)
+{
+	unsigned int data, lpf_band, lpf_state;
+	int ret;
+
+	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_SW, &data);
+	if (ret)
+		return ret;
+
+	lpf_band = FIELD_GET(ADMV8818_SW_OUT_WR0_MSK, data);
+
+	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_FILTER, &data);
+	if (ret)
+		return ret;
+
+	lpf_state = FIELD_GET(ADMV8818_LPF_WR0_MSK, data);
+
+	*lpf_freq = div_u64((freq_range_lpf[lpf_band-1][1] - freq_range_lpf[lpf_band-1][0]), (1000000 * 15));
+	*lpf_freq = div_u64(freq_range_lpf[lpf_band-1][0], 1000000) + (*lpf_freq * lpf_state);
+
+	return 0;
+}
+
 static int admv8818_write_raw(struct iio_dev *indio_dev,
 			     struct iio_chan_spec const *chan,
 			     int val, int val2, long info)
@@ -203,6 +250,31 @@ static int admv8818_write_raw(struct iio_dev *indio_dev,
 		return admv8818_lpf_select(dev, freq);
 	case IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY:
 		return admv8818_hpf_select(dev, freq);
+	default:
+		return -EINVAL;
+	}
+}
+
+static int admv8818_read_raw(struct iio_dev *indio_dev,
+			    struct iio_chan_spec const *chan,
+			    int *val, int *val2, long info)
+{
+	struct admv8818_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_LOW_PASS_FILTER_3DB_FREQUENCY:
+		ret = admv8818_read_lpf_freq(dev, val);
+		if (ret)
+			return ret;
+		
+		return IIO_VAL_INT;
+	case IIO_CHAN_INFO_HIGH_PASS_FILTER_3DB_FREQUENCY:
+		ret = admv8818_read_hpf_freq(dev, val);
+		if (ret)
+			return ret;
+		
+		return IIO_VAL_INT;
 	default:
 		return -EINVAL;
 	}
@@ -223,6 +295,7 @@ static int admv8818_reg_access(struct iio_dev *indio_dev,
 
 static const struct iio_info admv8818_info = {
 	.write_raw = admv8818_write_raw,
+	.read_raw = admv8818_read_raw,
 	.debugfs_reg_access = &admv8818_reg_access,
 };
 
