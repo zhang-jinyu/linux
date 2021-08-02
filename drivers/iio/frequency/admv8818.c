@@ -20,7 +20,7 @@
 
 /* ADMV8818 Register Map */
 #define ADMV8818_REG_SPI_CONFIG_A		0x0
-#define	ADMV8818_REG_SPI_CONFIG_B		0x1
+#define ADMV8818_REG_SPI_CONFIG_B		0x1
 #define ADMV8818_REG_CHIPTYPE			0x3
 #define ADMV8818_REG_PRODUCT_ID_L		0x4
 #define ADMV8818_REG_PRODUCT_ID_H		0x5
@@ -115,11 +115,12 @@ static int admv8818_hpf_select(struct admv8818_dev *dev, u64 freq)
 			hpf_band = i + 1;
 			freq_step = div_u64((freq_range_hpf[i][1] - freq_range_hpf[i][0]), 15);
 
-			for (j = 1; j < 16; j++)
+			for (j = 1; j < 16; j++) {
 				if (freq < (freq_range_hpf[i][0] + (freq_step * j))) {
 					hpf_step = j - 1;
 					break;
 				}
+			}
 			break;
 		}
 	}
@@ -152,11 +153,12 @@ static int admv8818_lpf_select(struct admv8818_dev *dev, u64 freq)
 			lpf_band = i + 1;
 			freq_step = div_u64((freq_range_lpf[i][1] - freq_range_lpf[i][0]), 15);
 
-			for (j = 1; j < 16; j++)
+			for (j = 1; j < 16; j++) {
 				if (freq < (freq_range_lpf[i][0] + (freq_step * j))) {
 					lpf_step = j;
 					break;
 				}
+			}
 			break;
 		}
 	}
@@ -396,11 +398,15 @@ static int admv8818_init(struct admv8818_dev *dev)
 	ret = regmap_update_bits(dev->regmap, ADMV8818_REG_SPI_CONFIG_B,
 					ADMV8818_SINGLE_INSTRUCTION_MSK,
 					FIELD_PREP(ADMV8818_SINGLE_INSTRUCTION_MSK, 1));
+	if (ret) {
+		dev_err(&spi->dev, "ADMV8818 Single Instruction failed.\n");
+		return ret;
+	}
 
 	if (dev->clkin)
 		return admv8818_rfin_band_select(dev);
 	else
-		return ret;
+		return 0;
 }
 
 static int admv8818_probe(struct spi_device *spi)
