@@ -136,12 +136,13 @@ hpf_write:
 				FIELD_PREP(ADMV8818_SW_IN_SET_WR0_MSK, 1) |
 				FIELD_PREP(ADMV8818_SW_IN_WR0_MSK, hpf_band));
 	if (ret)
-		return ret;
+		goto exit;
 
 	ret = regmap_update_bits(dev->regmap, ADMV8818_REG_WR0_FILTER,
 				ADMV8818_HPF_WR0_MSK,
 				FIELD_PREP(ADMV8818_HPF_WR0_MSK, hpf_step));
 
+exit:
 	mutex_unlock(&dev->lock);
 
 	return ret;
@@ -180,12 +181,12 @@ lpf_write:
 				FIELD_PREP(ADMV8818_SW_OUT_SET_WR0_MSK, 1) |
 				FIELD_PREP(ADMV8818_SW_OUT_WR0_MSK, lpf_band));
 	if (ret)
-		return ret;
+		goto exit;
 
 	ret = regmap_update_bits(dev->regmap, ADMV8818_REG_WR0_FILTER,
 				ADMV8818_LPF_WR0_MSK,
 				FIELD_PREP(ADMV8818_LPF_WR0_MSK, lpf_step));
-
+exit:
 	mutex_unlock(&dev->lock);
 
 	return ret;
@@ -222,16 +223,17 @@ static int admv8818_read_hpf_freq(struct admv8818_dev *dev, unsigned int *hpf_fr
 
 	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_FILTER, &data);
 	if (ret)
-		return ret;
-
-	mutex_unlock(&dev->lock);
+		goto exit;
 
 	hpf_state = FIELD_GET(ADMV8818_HPF_WR0_MSK, data);
 
-	*hpf_freq = div_u64((freq_range_hpf[hpf_band-1][1] - freq_range_hpf[hpf_band-1][0]), (dev->freq_scale * 15));
+	*hpf_freq = div_u64(freq_range_hpf[hpf_band-1][1] - freq_range_hpf[hpf_band-1][0], dev->freq_scale * 15);
 	*hpf_freq = div_u64(freq_range_hpf[hpf_band-1][0], dev->freq_scale) + (*hpf_freq * hpf_state);
 
-	return 0;
+exit:
+	mutex_unlock(&dev->lock);
+
+	return ret;
 }
 
 
@@ -249,22 +251,22 @@ static int admv8818_read_lpf_freq(struct admv8818_dev *dev, unsigned int *lpf_fr
 	lpf_band = FIELD_GET(ADMV8818_SW_OUT_WR0_MSK, data);
 	if (!lpf_band) {
 		*lpf_freq = 0;
-
 		return 0;
 	}
 
 	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_FILTER, &data);
 	if (ret)
-		return ret;
-
-	mutex_unlock(&dev->lock);
+		goto exit;
 
 	lpf_state = FIELD_GET(ADMV8818_LPF_WR0_MSK, data);
 
-	*lpf_freq = div_u64((freq_range_lpf[lpf_band-1][1] - freq_range_lpf[lpf_band-1][0]), (dev->freq_scale * 15));
+	*lpf_freq = div_u64(freq_range_lpf[lpf_band-1][1] - freq_range_lpf[lpf_band-1][0], dev->freq_scale * 15);
 	*lpf_freq = div_u64(freq_range_lpf[lpf_band-1][0], dev->freq_scale) + (*lpf_freq * lpf_state);
 
-	return 0;
+exit:
+	mutex_unlock(&dev->lock);
+
+	return ret;
 }
 
 static int admv8818_write_raw(struct iio_dev *indio_dev,
@@ -281,7 +283,6 @@ static int admv8818_write_raw(struct iio_dev *indio_dev,
 		return admv8818_hpf_select(dev, freq);
 	case IIO_CHAN_INFO_SCALE:
 		dev->freq_scale = val;
-
 		return 0;
 	default:
 		return -EINVAL;
@@ -310,7 +311,6 @@ static int admv8818_read_raw(struct iio_dev *indio_dev,
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
 		*val = dev->freq_scale;
-
 		return IIO_VAL_INT;
 	default:
 		return -EINVAL;
@@ -436,12 +436,17 @@ static int admv8818_clk_setup(struct admv8818_dev *dev)
 	struct spi_device *spi = dev->spi;
 	int ret;
 
+	dev->clkin = devm_clk_get_optional(&spi->dev, "rf_in");
+	if (IS_ERR(dev->clkin))
+		return PTR_ERR(dev->clkin);
+	else if (!dev->clkin)
+		return 0;
+
 	ret = of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
 	if (ret)
 		return ret;
 
 	ret = clk_prepare_enable(dev->clkin);
-
 
 	ret = devm_add_action_or_reset(&spi->dev, admv8818_clk_disable, dev->clkin);
 	if (ret)
@@ -483,15 +488,9 @@ static int admv8818_probe(struct spi_device *spi)
 
 	dev->spi = spi;
 
-	dev->clkin = devm_clk_get_optional(&spi->dev, "rf_in");
-	if (IS_ERR(dev->clkin))
-		return PTR_ERR(dev->clkin);
-
-	if (dev->clkin) {
-		ret = admv8818_clk_setup(dev);
-		if (ret)
-			return ret;
-	}
+	ret = admv8818_clk_setup(dev);
+	if (ret)
+		return ret;
 
 	mutex_init(&dev->lock);
 
