@@ -80,16 +80,17 @@ struct admv8818_dev {
 	struct mutex		lock;
 	unsigned int		freq_scale;
 	u64			clkin_freq;
+	u32			tolerance;
 };
 
-unsigned long long freq_range_hpf[4][2] = {
+static const unsigned long long freq_range_hpf[4][2] = {
 	{1750000000ULL, 3550000000ULL},
 	{3400000000ULL, 7250000000ULL},
 	{6600000000, 12000000000},
 	{12500000000, 19900000000}
 };
 
-unsigned long long freq_range_lpf[4][2] = {
+static const unsigned long long freq_range_lpf[4][2] = {
 	{2050000000ULL, 3850000000ULL},
 	{3350000000ULL, 7250000000ULL},
 	{7000000000, 13000000000},
@@ -113,11 +114,14 @@ static int admv8818_hpf_select(struct admv8818_dev *dev, u64 freq)
 		goto hpf_write;
 
 	for (i = 0; i < 4; i++) {
-		if ((freq > freq_range_hpf[i][0]) && freq < freq_range_hpf[i][1]) {
-			hpf_band = i + 1;
-			freq_step = div_u64((freq_range_hpf[i][1] - freq_range_hpf[i][0]), 15);
+		freq_step = div_u64((freq_range_hpf[i][1] -
+			freq_range_hpf[i][0]), 15);
 
-			for (j = 1; j < 16; j++) {
+		if ((freq > freq_range_hpf[i][0]) &&
+			(freq < freq_range_hpf[i][1] + freq_step)) {
+			hpf_band = i + 1;
+
+			for (j = 1; j <= 16; j++) {
 				if (freq < (freq_range_hpf[i][0] + (freq_step * j))) {
 					hpf_step = j - 1;
 					break;
@@ -125,6 +129,12 @@ static int admv8818_hpf_select(struct admv8818_dev *dev, u64 freq)
 			}
 			break;
 		}
+	}
+
+	/* Close HPF frequency gap between 12 and 12.5 GHz */
+	if (freq >= 12000000000 && freq <= 12500000000) {
+		hpf_band = 3;
+		hpf_step = 15;
 	}
 
 hpf_write:
@@ -162,7 +172,7 @@ static int admv8818_lpf_select(struct admv8818_dev *dev, u64 freq)
 			lpf_band = i + 1;
 			freq_step = div_u64((freq_range_lpf[i][1] - freq_range_lpf[i][0]), 15);
 
-			for (j = 1; j < 16; j++) {
+			for (j = 0; j <= 15; j++) {
 				if (freq < (freq_range_lpf[i][0] + (freq_step * j))) {
 					lpf_step = j;
 					break;
@@ -196,11 +206,13 @@ static int admv8818_rfin_band_select(struct admv8818_dev *dev)
 {
 	int ret;
 
-	ret = admv8818_hpf_select(dev, dev->clkin_freq);
+	ret = admv8818_hpf_select(dev, DIV_ROUND_DOWN_ULL(
+		dev->clkin_freq * (100 - dev->tolerance), 100));
 	if (ret)
 		return ret;
 
-	return admv8818_lpf_select(dev, dev->clkin_freq);
+	return admv8818_lpf_select(dev, DIV_ROUND_UP_ULL(
+		dev->clkin_freq * (100 + dev->tolerance), 100));
 }
 
 static int admv8818_read_hpf_freq(struct admv8818_dev *dev, unsigned int *hpf_freq)
@@ -212,13 +224,12 @@ static int admv8818_read_hpf_freq(struct admv8818_dev *dev, unsigned int *hpf_fr
 
 	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_SW, &data);
 	if (ret)
-		return ret;
+		goto exit;
 
 	hpf_band = FIELD_GET(ADMV8818_SW_IN_WR0_MSK, data);
 	if (!hpf_band) {
 		*hpf_freq = 0;
-
-		return 0;
+		goto exit;
 	}
 
 	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_FILTER, &data);
@@ -246,12 +257,12 @@ static int admv8818_read_lpf_freq(struct admv8818_dev *dev, unsigned int *lpf_fr
 
 	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_SW, &data);
 	if (ret)
-		return ret;
+		goto exit;
 
 	lpf_band = FIELD_GET(ADMV8818_SW_OUT_WR0_MSK, data);
 	if (!lpf_band) {
 		*lpf_freq = 0;
-		return 0;
+		goto exit;
 	}
 
 	ret = regmap_read(dev->regmap, ADMV8818_REG_WR0_FILTER, &data);
@@ -337,7 +348,7 @@ static const struct iio_info admv8818_info = {
 };
 
 #define ADMV8818_CHAN(_channel) {				\
-	.type = IIO_VOLTAGE,					\
+	.type = IIO_ALTVOLTAGE,					\
 	.output = 1,						\
 	.indexed = 1,						\
 	.channel = _channel,					\
@@ -355,10 +366,16 @@ static int admv8818_freq_change(struct notifier_block *nb, unsigned long action,
 {
 	struct admv8818_dev *dev = container_of(nb, struct admv8818_dev, nb);
 	struct clk_notifier_data *cnd = data;
+	unsigned long long rate;
 
-	if (action == POST_RATE_CHANGE) {
+	if (action == PRE_RATE_CHANGE) {
 		/* cache the new rate */
-		dev->clkin_freq = clk_get_rate_scaled(cnd->clk, &dev->clkscale);
+		rate = from_ccf_scaled(cnd->new_rate, &dev->clkscale);
+
+		if (rate == dev->clkin_freq)
+			return NOTIFY_OK;
+
+		dev->clkin_freq = rate;
 
 		return notifier_from_errno(admv8818_rfin_band_select(dev));
 	}
@@ -445,6 +462,11 @@ static int admv8818_clk_setup(struct admv8818_dev *dev)
 	ret = of_clk_get_scale(spi->dev.of_node, NULL, &dev->clkscale);
 	if (ret)
 		return ret;
+
+	of_property_read_u32(spi->dev.of_node,
+		"adi,tolerance-percent", &dev->tolerance);
+
+	dev->tolerance = clamp(dev->tolerance, 0U, 50U);
 
 	ret = clk_prepare_enable(dev->clkin);
 

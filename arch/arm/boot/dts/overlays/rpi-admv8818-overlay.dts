@@ -44,6 +44,7 @@
 				clocks = <&admv8818_rfin>;
 				clock-scales = <1 50>;
 				clock-names = "rf_in";
+				adi,tolerance-percent = <3>;
 			};
 		};
 	};
