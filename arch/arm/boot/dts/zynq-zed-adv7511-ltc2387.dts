@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Analog Devices ADV7511
+ * https://www.analog.com/en/products/adv7511.html
+ * https://wiki.analog.com/resources/tools-software/linux-drivers/platforms/zynq
+ * https://wiki.analog.com/resources/fpga/xilinx/kc705/adv7511
+ *
+ * hdl_project: <adv7511/zed>
+ * board_revision: <>
+ *
+ * Copyright (C) 2012-2019 Analog Devices Inc.
+ */
+/dts-v1/;
+
+#include "zynq-zed.dtsi"
+#include "zynq-zed-adv7511.dtsi"
+
+/ {
+	vref: regulator-vref {
+		compatible = "regulator-fixed";
+		regulator-name = "fixed-supply";
+		regulator-min-microvolt = <4096000>;
+		regulator-max-microvolt = <4096000>;
+		regulator-always-on;
+	};
+
+	clocks {
+		ltc2387_clk: clock@0 {
+			#clock-cells = <0>;
+			compatible = "fixed-clock";
+			clock-frequency = <15000000>;
+		};
+        cnv_ext_clk: ext-clk {
+            #clock-cells = <0x0>;
+            compatible = "fixed-clock";
+            clock-frequency = <210000000>;
+            clock-output-names = "cnv_ext_clk";
+        };
+	};
+};
+
+&fpga_axi {
+	rx_dma: rx-dmac@0x44a30000 {
+		compatible = "adi,axi-dmac-1.00.a";
+		reg = <0x44a30000 0x10000>;
+		#dma-cells = <1>;
+		interrupts = <0 57 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&clkc 16>;
+
+		adi,channels {
+			#size-cells = <0>;
+			#address-cells = <1>;
+
+			dma-channel@0 {
+				reg = <0>;
+				adi,source-bus-width = <32>;
+				adi,source-bus-type = <2>;
+				adi,destination-bus-width = <64>;
+				adi,destination-bus-type = <0>;
+			};
+		};
+	};
+
+	axi_adc_ltc2387: cf_axi_adc@44a00000 {
+		compatible = "xlnx,axi-ad-mc-adc-1.00.a";
+		reg = <0x44a00000 0x10000>;
+		dmas = <&rx_dma 0>;
+		dma-names = "rx";
+	};
+
+    axi_pwm_gen: axi-pwm-gen@44a60000 {
+        compatible = "adi,axi-pwmgen";
+        reg = <0x44a60000 0x1000>;
+        label = "ltc2387_cnv";
+        #pwm-cells = <2>;
+        clocks = <&cnv_ext_clk>;
+    };
+};
+
