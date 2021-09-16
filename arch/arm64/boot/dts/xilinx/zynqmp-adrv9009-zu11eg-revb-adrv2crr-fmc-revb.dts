@@ -16,6 +16,25 @@
 #include "zynqmp-adrv9009-zu11eg-reva-adrv2crr-fmc-reva.dts"
 #include "zynqmp-adrv9009-zu11eg-revb.dtsi"
 
+/ {
+	admv101x_lo: clock@0 {
+		compatible = "fixed-clock";
+
+		clock-frequency = <1000000000>;
+		clock-output-names = "lo_in";
+		#clock-cells = <0>;
+	};
+
+	vcm: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcm";
+		regulator-min-microvolt = <1500000>;
+		regulator-max-microvolt = <1500000>;
+		regulator-boot-on;
+	};
+};
+
+
 &dwc3_0 {
 	status = "okay";
 	dr_mode = "otg";
@@ -31,4 +50,37 @@
 &hmc7044 {
 	clocks = <&hmc7044_car 2>;
 	clock-names = "clkin1";
+};
+
+&fpga_axi {
+	axi_spi_1: spi@84000000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		bits-per-word = <8>;
+		compatible = "xlnx,xps-spi-2.00.a";
+		reg = <0x0 0x84000000 0x1000>;
+		fifo-size = <16>;
+		interrupts = <0 92 IRQ_TYPE_EDGE_RISING>;
+		num-cs = <0x8>;
+		xlnx,num-ss-bits = <0x8>;
+		xlnx,spi-mode = <0>;
+	};
+};
+
+&axi_spi_1 {
+	admv1014_a@0 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		compatible = "adi,admv1014";
+		reg = <0>;
+		spi-max-frequency = <500000>;
+		clocks = <&admv101x_lo>;
+		clock-names = "lo_in";
+		clock-scales = <1 8>;
+		vcm-supply = <&vcm>;
+		adi,quad-se-mode = <0>;
+		adi,p1db-comp = <3>;
+		adi,det-prog = <4>;
+		adi,bb-amp-gain-ctrl = <0>;
+	};
 };
