@@ -93,6 +93,7 @@ config IIO_ALL_ADI_DRIVERS
 	select AD5686
 	select AD5686_SPI if SPI
 	select AD5696_I2C if I2C
+	select AD7293
 	select AD7303
 	select AD8801
 	select AD9508
