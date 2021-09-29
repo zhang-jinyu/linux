@@ -25,6 +25,8 @@
 #define AD7293_PAGE_ADDR(x)			(((x) >> 8) & 0xFF)
 #define AD7293_REG_ADDR(x)			((x) & 0xFF)
 
+#define AD7293_CHIP_ID				0x18
+
 /* AD7293 Register Map Common */
 #define AD7293_REG_NO_OP			(AD7293_R1B | AD7293_PAGE(0x00) | 0x00)
 #define AD7293_REG_PAGE_SELECT			(AD7293_R1B | AD7293_PAGE(0x00) | 0x01)
@@ -315,11 +317,6 @@ static int ad7293_spi_read(struct ad7293_dev *dev, unsigned int reg,
 	int ret;
 	struct spi_transfer t = {0};
 
-	u8 temp = AD7293_PAGE_ADDR(reg);
-
-	printk ("page select: %d", dev->page_select);
-	printk ("page address: %d", temp);
-
 	if (dev->page_select != AD7293_PAGE_ADDR(reg)) {
 		ret = ad7293_page_select(dev, AD7293_PAGE_ADDR(reg));
 		if (ret)
@@ -335,7 +332,7 @@ static int ad7293_spi_read(struct ad7293_dev *dev, unsigned int reg,
 	t.tx_buf = &dev->data[0];
 	t.rx_buf = &dev->data[0];
 	t.len = 1 + AD7293_TRANSF_LEN(reg);
-	printk("transfer len %d", 1 + AD7293_TRANSF_LEN(reg));
+
 	ret = spi_sync_transfer(dev->spi, &t, 1);
 	if (ret)
 		return ret;
@@ -359,6 +356,7 @@ static int ad7293_spi_write(struct ad7293_dev *dev, unsigned int reg,
 	}
 
 	dev->data[0] = AD7293_WRITE | AD7293_REG_ADDR(reg);
+
 	if (AD7293_TRANSF_LEN(reg) == 1) {
 		dev->data[1] = val;
 	} else {
@@ -385,8 +383,91 @@ static int ad7293_reg_access(struct iio_dev *indio_dev,
 	return ret;
 }
 
+#define AD7293_CHAN_ADC(_channel) {				\
+	.type = IIO_VOLTAGE,					\
+	.output = 0,						\
+	.indexed = 1,						\
+	.channel = _channel,					\
+	.info_mask_separate =					\
+		BIT(IIO_CHAN_INFO_RAW) | 			\
+		BIT(IIO_CHAN_INFO_SCALE) | 			\
+		BIT(IIO_CHAN_INFO_OFFSET), 			\
+	.info_mask_shared_by_type_available = 			\
+		BIT(IIO_CHAN_INFO_SCALE)			\
+}
+
+#define AD7293_CHAN_DAC(_channel) {				\
+	.type = IIO_VOLTAGE,					\
+	.output = 1,						\
+	.indexed = 1,						\
+	.channel = _channel,					\
+	.info_mask_separate =					\
+		BIT(IIO_CHAN_INFO_RAW) | 			\
+		BIT(IIO_CHAN_INFO_OFFSET), 			\
+	.info_mask_shared_by_type_available =			\
+		BIT(IIO_CHAN_INFO_OFFSET),			\
+}
+
+#define AD7293_CHAN_ISENSE(_channel) {				\
+	.type = IIO_CURRENT,					\
+	.output = 0,						\
+	.indexed = 1,						\
+	.channel = _channel,					\
+	.info_mask_separate =					\
+		BIT(IIO_CHAN_INFO_RAW) | 			\
+		BIT(IIO_CHAN_INFO_OFFSET) |			\
+		BIT(IIO_CHAN_INFO_HARDWAREGAIN),		\
+	.info_mask_shared_by_type_available =			\
+		BIT(IIO_CHAN_INFO_HARDWAREGAIN)			\
+}
+
+#define AD7293_CHAN_TEMP(_channel) {				\
+	.type = IIO_TEMP,					\
+	.output = 0,						\
+	.indexed = 1,						\
+	.channel = _channel,					\
+	.info_mask_separate =					\
+		BIT(IIO_CHAN_INFO_RAW) | 			\
+		BIT(IIO_CHAN_INFO_OFFSET) 			\
+}
+
+static const struct iio_chan_spec ad7293_channels[] = {
+	AD7293_CHAN_ADC(0),
+	AD7293_CHAN_ADC(1),
+	AD7293_CHAN_ADC(2),
+	AD7293_CHAN_ADC(3),
+	AD7293_CHAN_ISENSE(0),
+	AD7293_CHAN_ISENSE(1),
+	AD7293_CHAN_ISENSE(2),
+	AD7293_CHAN_ISENSE(3),
+	AD7293_CHAN_TEMP(0),
+	AD7293_CHAN_TEMP(1),
+	AD7293_CHAN_TEMP(2),
+	AD7293_CHAN_DAC(0),
+	AD7293_CHAN_DAC(1),
+	AD7293_CHAN_DAC(2),
+	AD7293_CHAN_DAC(3),
+	AD7293_CHAN_DAC(4),
+	AD7293_CHAN_DAC(5),
+	AD7293_CHAN_DAC(6),
+	AD7293_CHAN_DAC(7)
+};
+
 static int ad7293_init(struct ad7293_dev *dev)
 {
+	int ret;
+	unsigned int chip_id;
+	struct spi_device *spi = dev->spi;
+
+	ret = ad7293_spi_read(dev, AD7293_REG_DEVICE_ID, &chip_id);
+	if (ret < 0)
+		return ret;
+
+	if (chip_id != AD7293_CHIP_ID) {
+		dev_err(&spi->dev, "Invalid Chip ID.\n");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -409,6 +490,8 @@ static int ad7293_probe(struct spi_device *spi)
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &ad7293_info;
 	indio_dev->name = "ad7293";
+	indio_dev->channels = ad7293_channels;
+	indio_dev->num_channels = ARRAY_SIZE(ad7293_channels);
 
 	dev->spi = spi;
 	dev->page_select = 0;
