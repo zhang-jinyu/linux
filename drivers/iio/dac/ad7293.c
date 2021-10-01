@@ -299,6 +299,8 @@
 
 struct ad7293_dev {
 	struct spi_device	*spi;
+	/* Protect against concurrent accesses to the device */
+	struct mutex		lock;
 	u8 page_select;
 	u8 data[3] ____cacheline_aligned;
 };
@@ -495,6 +497,8 @@ static int ad7293_probe(struct spi_device *spi)
 
 	dev->spi = spi;
 	dev->page_select = 0;
+
+	mutex_init(&dev->lock);
 
 	ret = ad7293_init(dev);
 	if (ret)
