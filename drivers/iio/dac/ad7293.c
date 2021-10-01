@@ -369,6 +369,21 @@ static int ad7293_spi_write(struct ad7293_dev *dev, unsigned int reg,
 	return spi_write(dev->spi, &dev->data[0], 1 + AD7293_TRANSF_LEN(reg));
 }
 
+static int ad7293_spi_update_bits(struct ad7293_dev *dev, unsigned int reg,
+			       unsigned int mask, unsigned int val)
+{
+	int ret;
+	unsigned int data, temp;
+
+	ret = ad7293_spi_read(dev, reg, &data);
+	if (ret)
+		return ret;
+
+	temp = (data & ~mask) | (val & mask);
+
+	return ad7293_spi_write(dev, reg, temp);
+}
+
 static int ad7293_reg_access(struct iio_dev *indio_dev,
 				unsigned int reg,
 				unsigned int write_val,
