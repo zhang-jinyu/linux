@@ -384,6 +384,103 @@ static int ad7293_spi_update_bits(struct ad7293_dev *dev, unsigned int reg,
 	return ad7293_spi_write(dev, reg, temp);
 }
 
+static int ad7293_read_raw(struct iio_dev *indio_dev,
+			    struct iio_chan_spec const *chan,
+			    int *val, int *val2, long info)
+{
+	struct ad7293_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_RAW:
+		switch (chan->type) {
+		case IIO_VOLTAGE:
+			if (chan->output) {
+				//TODO: ADC raw
+				return ret;
+			} else {
+				//TODO: DAC raw
+				return ret;
+			}
+		case IIO_CURRENT:
+			//TODO: Current Sense raw
+		case IIO_TEMP:
+			//TODO: Temperature Sense raw
+		default:
+			return -EINVAL;
+		}
+	case IIO_CHAN_INFO_OFFSET:
+		switch (chan->type) {
+		case IIO_VOLTAGE:
+			if (chan->output) {
+				//TODO: DAC offset
+				return ret;
+			} else {
+				//TODO: ADC offset
+				return ret;
+			}
+		case IIO_CURRENT:
+			//TODO: Current Sense offset
+		case IIO_TEMP:
+			//TODO: Temperature Sense offset
+		default:
+			return -EINVAL;
+		}
+	case IIO_CHAN_INFO_SCALE:
+		//TODO: ADC Scale
+	case IIO_CHAN_INFO_HARDWAREGAIN:
+		//TODO Current Sense Gain.
+	default:
+		return -EINVAL;
+	}
+}
+
+static int ad7293_write_raw(struct iio_dev *indio_dev,
+			     struct iio_chan_spec const *chan,
+			     int val, int val2, long info)
+{
+	struct ad7293_dev *dev = iio_priv(indio_dev);
+	int ret;
+
+	switch (info) {
+	case IIO_CHAN_INFO_RAW:
+		switch (chan->type) {
+		case IIO_VOLTAGE:
+			if (chan->output) {
+				//TODO: DAC raw
+				return ret;
+			} else {
+				return -EINVAL;
+			}
+		default:
+			return -EINVAL;
+		}
+	case IIO_CHAN_INFO_OFFSET:
+		switch (chan->type) {
+		case IIO_VOLTAGE:
+			if (chan->output){
+				//TODO: DAC offset
+				return ret;
+			} else {
+				//TODO: ADC offset
+				return ret;
+			}
+		case IIO_CURRENT:
+			//TODO: Current Sense offset
+		case IIO_TEMP:
+			//TODO: Temperature Sense offset
+		default:
+			return -EINVAL;
+		}
+	case IIO_CHAN_INFO_SCALE:
+		//TODO: ADC Scale
+	case IIO_CHAN_INFO_HARDWAREGAIN:
+		//TODO Current Sense Gain.
+	default:
+		return -EINVAL;
+	}
+}
+
 static int ad7293_reg_access(struct iio_dev *indio_dev,
 				unsigned int reg,
 				unsigned int write_val,
@@ -489,6 +586,8 @@ static int ad7293_init(struct ad7293_dev *dev)
 }
 
 static const struct iio_info ad7293_info = {
+	.read_raw = ad7293_read_raw,
+	.write_raw = ad7293_write_raw,
 	.debugfs_reg_access = &ad7293_reg_access,
 };
 
