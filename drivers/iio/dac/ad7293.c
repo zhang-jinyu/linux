@@ -384,12 +384,45 @@ static int ad7293_spi_update_bits(struct ad7293_dev *dev, unsigned int reg,
 	return ad7293_spi_write(dev, reg, temp);
 }
 
+static int ad7293_adc_get_scale(struct ad7293_dev *dev, unsigned int ch, enum ad7293_adc_range *range)
+{
+	int ret;
+	unsigned int data;
+
+	ret = ad7293_spi_read(dev, AD7293_REG_VINX_RANGE1, &data);
+	if (ret)
+		return ret;
+
+	*range = (data >> ch) & 0x1;
+
+	ret = ad7293_spi_read(dev, AD7293_REG_VINX_RANGE0, &data);
+	if (ret)
+		return ret;
+
+	*range |= ((data >> ch) & 0x1) << 1;
+
+	return 0;
+}
+
+static int ad7293_adc_set_scale(struct ad7293_dev *dev, unsigned int ch, enum ad7293_adc_range range)
+{
+	int ret;
+	unsigned int ch_msk = 1 << ch;
+
+	ret = ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE1, ch_msk, range & 0x1);
+	if (ret)
+		return ret;
+
+	return ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE0, ch_msk, ((range >> 1) & 0x1));
+}
+
 static int ad7293_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
 			    int *val, int *val2, long info)
 {
 	struct ad7293_dev *dev = iio_priv(indio_dev);
 	int ret;
+	unsigned int data;
 
 	switch (info) {
 	case IIO_CHAN_INFO_RAW:
@@ -427,7 +460,13 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_SCALE:
-		//TODO: ADC Scale
+		ret = ad7293_adc_get_scale(dev, chan->channel, &data);
+		if (ret)
+			return ret;
+
+		*val = data;
+
+		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_HARDWAREGAIN:
 		//TODO Current Sense Gain.
 	default:
@@ -473,7 +512,7 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_SCALE:
-		//TODO: ADC Scale
+		return ad7293_adc_set_scale(dev, chan->channel, val);
 	case IIO_CHAN_INFO_HARDWAREGAIN:
 		//TODO Current Sense Gain.
 	default:
