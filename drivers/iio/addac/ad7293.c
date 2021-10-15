@@ -297,17 +297,8 @@
 #define AD7293_REG_RSX_MON_ALERT1		(AD7293_R2B | AD7293_PAGE(0x12) | 0x19)
 #define AD7293_REG_INT_LIMIT_AVSS_ALERT1	(AD7293_R2B | AD7293_PAGE(0x12) | 0x1A)
 
-enum ad7293_adc_range {
-	AD7293_4XREF_ADC = 0,
-	AD7293_2XREF_ADC = 1,
-	AD7293_1XREF_ADC = 3,
-};
-
-enum ad7293_dac_unipolar_offset {
-	AD7293_DAC_0V_5V,
-	AD7293_DAC_2V5_5V,
-	AD7293_DAC_5V_10V
-};
+/* AD7293 DAC Offset Register Bit Definition */
+#define AD7293_REG_VOUT_OFFSET_MSK		GENMASK(5,4)
 
 struct ad7293_dev {
 	struct spi_device	*spi;
@@ -396,7 +387,7 @@ static int ad7293_spi_update_bits(struct ad7293_dev *dev, unsigned int reg,
 	return ad7293_spi_write(dev, reg, temp);
 }
 
-static int ad7293_adc_get_scale(struct ad7293_dev *dev, unsigned int ch, enum ad7293_adc_range *range)
+static int ad7293_adc_get_scale(struct ad7293_dev *dev, unsigned int ch, unsigned int *range)
 {
 	int ret;
 	unsigned int data;
@@ -416,7 +407,7 @@ static int ad7293_adc_get_scale(struct ad7293_dev *dev, unsigned int ch, enum ad
 	return 0;
 }
 
-static int ad7293_adc_set_scale(struct ad7293_dev *dev, unsigned int ch, enum ad7293_adc_range range)
+static int ad7293_adc_set_scale(struct ad7293_dev *dev, unsigned int ch, unsigned int range)
 {
 	int ret;
 	unsigned int ch_msk = 1 << ch;
@@ -436,6 +427,8 @@ static int ad7293_get_offset(struct ad7293_dev *dev, unsigned int ch, unsigned i
 		return ad7293_spi_read(dev, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
 	else if (ch < 11)
 		return ad7293_spi_read(dev, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
+	else if (ch < 19)
+		return ad7293_spi_read(dev, AD7293_REG_UNI_VOUT0_OFFSET + (ch - 11), offset);
 	else
 		return -EINVAL;
 }
@@ -448,6 +441,10 @@ static int ad7293_set_offset(struct ad7293_dev *dev, unsigned int ch, unsigned i
 		return ad7293_spi_write(dev, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
 	else if (ch < 11)
 		return ad7293_spi_write(dev, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
+	else if (ch < 19)
+		return ad7293_spi_update_bits(dev, AD7293_REG_UNI_VOUT0_OFFSET + (ch - 11),
+						AD7293_REG_VOUT_OFFSET_MSK,
+						FIELD_PREP(AD7293_REG_VOUT_OFFSET_MSK, offset));
 	else
 		return -EINVAL;
 }
@@ -482,15 +479,17 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output) {
-				//TODO: DAC offset
-				return ret;
+				ret = ad7293_get_offset(dev, chan->channel + 11, &data);
+
+				data = FIELD_GET(AD7293_REG_VOUT_OFFSET_MSK, data);
 			} else {
 				ret = ad7293_get_offset(dev, chan->channel, &data);
-				if (ret)
-					return ret;
-
-				*val = data;
 			}
+
+			if (ret)
+				return ret;
+
+			*val = data;
 
 			return IIO_VAL_INT;
 		case IIO_CURRENT:
@@ -562,8 +561,7 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output){
-				//TODO: DAC offset
-				return ret;
+				return ad7293_set_offset(dev, chan->channel + 11, val);
 			} else {
 				return ad7293_set_offset(dev, chan->channel, val);
 			}
