@@ -705,6 +705,16 @@ static int ad7293_init(struct ad7293_dev *dev)
 	unsigned int chip_id;
 	struct spi_device *spi = dev->spi;
 
+	/* Perform software reset */
+	ret = ad7293_spi_write(dev, AD7293_REG_SOFT_RESET, 0x7293);
+	if (ret < 0)
+		return ret;
+
+	ret = ad7293_spi_write(dev, AD7293_REG_SOFT_RESET, 0x0000);
+	if (ret < 0)
+		return ret;
+
+	/* Check Chip ID */
 	ret = ad7293_spi_read(dev, AD7293_REG_DEVICE_ID, &chip_id);
 	if (ret < 0)
 		return ret;
