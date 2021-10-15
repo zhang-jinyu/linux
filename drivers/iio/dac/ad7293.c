@@ -428,6 +428,30 @@ static int ad7293_adc_set_scale(struct ad7293_dev *dev, unsigned int ch, enum ad
 	return ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE0, ch_msk, ((range >> 1) & 0x1));
 }
 
+static int ad7293_get_offset(struct ad7293_dev *dev, unsigned int ch, unsigned int *offset)
+{
+	if (ch < 4)
+		return ad7293_spi_read(dev, AD7293_REG_VIN0_OFFSET + ch, offset);
+	else if (ch < 7)
+		return ad7293_spi_read(dev, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
+	else if (ch < 11)
+		return ad7293_spi_read(dev, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
+	else
+		return -EINVAL;
+}
+
+static int ad7293_set_offset(struct ad7293_dev *dev, unsigned int ch, unsigned int offset)
+{
+	if (ch < 4)
+		return ad7293_spi_write(dev, AD7293_REG_VIN0_OFFSET + ch, offset);
+	else if (ch < 7)
+		return ad7293_spi_write(dev, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
+	else if (ch < 11)
+		return ad7293_spi_write(dev, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
+	else
+		return -EINVAL;
+}
+
 static int ad7293_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
 			    int *val, int *val2, long info)
@@ -461,24 +485,52 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 				//TODO: DAC offset
 				return ret;
 			} else {
-				//TODO: ADC offset
-				return ret;
+				ret = ad7293_get_offset(dev, chan->channel, &data);
+				if (ret)
+					return ret;
+
+				*val = data;
 			}
+
+			return IIO_VAL_INT;
 		case IIO_CURRENT:
-			//TODO: Current Sense offset
+			ret = ad7293_get_offset(dev, chan->channel + 7, &data);
+			if (ret)
+				return ret;
+
+			*val = data;
+
+			return IIO_VAL_INT;
 		case IIO_TEMP:
-			//TODO: Temperature Sense offset
+			ret = ad7293_get_offset(dev, chan->channel + 4, &data);
+			if (ret)
+				return ret;
+
+			*val = data;
+
+			return IIO_VAL_INT;
 		default:
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_SCALE:
-		ret = ad7293_adc_get_scale(dev, chan->channel, &data);
-		if (ret)
-			return ret;
+		switch (chan->type) {
+		case IIO_VOLTAGE:
+			ret = ad7293_adc_get_scale(dev, chan->channel, &data);
+			if (ret)
+				return ret;
 
-		*val = data;
+			*val = data;
 
-		return IIO_VAL_INT;
+			return IIO_VAL_INT;
+
+		case IIO_TEMP:
+			*val = 1;
+			*val2 = 8;
+
+			return IIO_VAL_FRACTIONAL;
+		default:
+			return -EINVAL;
+		}
 	case IIO_CHAN_INFO_HARDWAREGAIN:
 		//TODO Current Sense Gain.
 	default:
@@ -513,18 +565,22 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 				//TODO: DAC offset
 				return ret;
 			} else {
-				//TODO: ADC offset
-				return ret;
+				return ad7293_set_offset(dev, chan->channel, val);
 			}
 		case IIO_CURRENT:
-			//TODO: Current Sense offset
+			return ad7293_set_offset(dev, chan->channel + 7, val);
 		case IIO_TEMP:
-			//TODO: Temperature Sense offset
+			return ad7293_set_offset(dev, chan->channel + 4, val);
 		default:
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_SCALE:
-		return ad7293_adc_set_scale(dev, chan->channel, val);
+		switch (chan->type) {
+		case IIO_VOLTAGE:
+			return ad7293_adc_set_scale(dev, chan->channel, val);
+		default:
+			return -EINVAL;
+		}
 	case IIO_CHAN_INFO_HARDWAREGAIN:
 		//TODO Current Sense Gain.
 	default:
@@ -593,7 +649,8 @@ static int ad7293_reg_access(struct iio_dev *indio_dev,
 	.channel = _channel,					\
 	.info_mask_separate =					\
 		BIT(IIO_CHAN_INFO_RAW) | 			\
-		BIT(IIO_CHAN_INFO_OFFSET) 			\
+		BIT(IIO_CHAN_INFO_OFFSET), 			\
+	.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) 	\
 }
 
 static const struct iio_chan_spec ad7293_channels[] = {
