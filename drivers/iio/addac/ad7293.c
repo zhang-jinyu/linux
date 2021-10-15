@@ -449,6 +449,26 @@ static int ad7293_set_offset(struct ad7293_dev *dev, unsigned int ch, unsigned i
 		return -EINVAL;
 }
 
+static int ad7293_isense_set_gain(struct ad7293_dev *dev, unsigned int ch, unsigned int gain)
+{
+	unsigned int ch_msk = 0xf << (4 * ch);
+
+	return ad7293_spi_update_bits(dev, AD7293_REG_ISENSE_GAIN, ch_msk, gain << (4 * ch));
+}
+
+static int ad7293_isense_get_gain(struct ad7293_dev *dev, unsigned int ch, unsigned int *gain)
+{
+	int ret;
+
+	ret = ad7293_spi_read(dev, AD7293_REG_ISENSE_GAIN, gain);
+	if (ret)
+		return ret;
+
+	*gain = (*gain >> (4 * ch)) & 0xf;
+
+	return ret;
+}
+
 static int ad7293_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
 			    int *val, int *val2, long info)
@@ -531,7 +551,13 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		//TODO Current Sense Gain.
+		ret = ad7293_isense_get_gain(dev, chan->channel, &data);
+		if (ret)
+			return ret;
+
+		*val = data;
+
+		return IIO_VAL_INT;
 	default:
 		return -EINVAL;
 	}
@@ -580,7 +606,7 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		//TODO Current Sense Gain.
+		return ad7293_isense_set_gain(dev, chan->channel, val);
 	default:
 		return -EINVAL;
 	}
