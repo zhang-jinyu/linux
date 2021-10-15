@@ -412,11 +412,11 @@ static int ad7293_adc_set_scale(struct ad7293_dev *dev, unsigned int ch, unsigne
 	int ret;
 	unsigned int ch_msk = 1 << ch;
 
-	ret = ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE1, ch_msk, range & 0x1);
+	ret = ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE1, ch_msk, (range & 0x1) << ch);
 	if (ret)
 		return ret;
 
-	return ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE0, ch_msk, ((range >> 1) & 0x1));
+	return ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE0, ch_msk, (range >> 1) << ch);
 }
 
 static int ad7293_get_offset(struct ad7293_dev *dev, unsigned int ch, unsigned int *offset)
