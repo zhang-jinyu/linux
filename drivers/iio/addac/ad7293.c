@@ -300,6 +300,13 @@
 /* AD7293 DAC Offset Register Bit Definition */
 #define AD7293_REG_VOUT_OFFSET_MSK		GENMASK(5,4)
 
+enum ad7293_ch_type {
+	AD7293_ADC_VINX,
+	AD7293_ADC_TSENSE,
+	AD7293_ADC_ISENSE,
+	AD7293_DAC,
+};
+
 struct ad7293_dev {
 	struct spi_device	*spi;
 	/* Protect against concurrent accesses to the device */
@@ -469,6 +476,67 @@ static int ad7293_isense_get_gain(struct ad7293_dev *dev, unsigned int ch, unsig
 	return ret;
 }
 
+static int ad7293_dac_write_raw(struct ad7293_dev *dev, unsigned int ch, unsigned int raw)
+{
+	int ret;
+
+	ret = ad7293_spi_update_bits(dev, AD7293_REG_DAC_EN, 1 << ch, 1 << ch);
+	if (ret)
+		return ret;
+
+	return ad7293_spi_write(dev, AD7293_REG_UNI_VOUT0 + ch, raw << 4);
+}
+
+static int ad7293_ch_read_raw(struct ad7293_dev *dev, enum ad7293_ch_type type, unsigned int ch,
+				unsigned int *raw)
+{
+	int ret;
+	unsigned int reg_wr, reg_rd, data_wr;
+
+	switch (type) {
+	case AD7293_ADC_VINX:
+		reg_wr = AD7293_REG_VINX_SEQ;
+		reg_rd = AD7293_REG_VIN0 + ch;
+		data_wr = 1 << ch;
+
+		break;
+	case AD7293_ADC_TSENSE:
+		reg_wr = AD7293_REG_ISENSEX_TSENSEX_SEQ;
+		reg_rd = AD7293_REG_TSENSE_INT + ch;
+		data_wr = 1 << ch;
+
+		break;
+	case AD7293_ADC_ISENSE:
+		reg_wr = AD7293_REG_ISENSEX_TSENSEX_SEQ;
+		reg_rd = AD7293_REG_ISENSE_0 + ch;
+		data_wr = (1 << ch) << 8;
+
+		break;
+	case AD7293_DAC:
+		reg_rd = AD7293_REG_UNI_VOUT0 + ch;
+
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (type != AD7293_DAC) {
+		ret = ad7293_spi_write(dev, reg_wr, data_wr);
+		if (ret)
+			return ret;
+
+		ret = ad7293_spi_write(dev, AD7293_REG_CONV_CMD, 0x82);
+		if (ret)
+			return ret;
+	}
+
+	ret = ad7293_spi_read(dev, reg_rd, raw);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 static int ad7293_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
 			    int *val, int *val2, long info)
@@ -482,16 +550,32 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output) {
-				//TODO: ADC raw
-				return ret;
+				ret =  ad7293_ch_read_raw(dev, AD7293_DAC, chan->channel, &data);
 			} else {
-				//TODO: DAC raw
-				return ret;
+				ret =  ad7293_ch_read_raw(dev, AD7293_ADC_VINX, chan->channel, &data);
 			}
+			if (ret)
+				return ret;
+
+			*val = data >> 4;
+
+			return IIO_VAL_INT;
 		case IIO_CURRENT:
-			//TODO: Current Sense raw
+			ret =  ad7293_ch_read_raw(dev, AD7293_ADC_ISENSE, chan->channel, &data);
+			if (ret)
+				return ret;
+
+			*val = data >> 4;
+
+			return IIO_VAL_INT;
 		case IIO_TEMP:
-			//TODO: Temperature Sense raw
+			ret =  ad7293_ch_read_raw(dev, AD7293_ADC_TSENSE, chan->channel, &data);
+			if (ret)
+				return ret;
+
+			*val = data >> 4;
+
+			return IIO_VAL_INT;
 		default:
 			return -EINVAL;
 		}
@@ -568,18 +652,15 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 			     int val, int val2, long info)
 {
 	struct ad7293_dev *dev = iio_priv(indio_dev);
-	int ret;
 
 	switch (info) {
 	case IIO_CHAN_INFO_RAW:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			if (chan->output) {
-				//TODO: DAC raw
-				return ret;
-			} else {
-				return -EINVAL;
-			}
+			if(chan->output)
+				return ad7293_dac_write_raw(dev, chan->channel, val);
+
+			return -EINVAL;
 		default:
 			return -EINVAL;
 		}
