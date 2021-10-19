@@ -554,31 +554,26 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 			} else {
 				ret =  ad7293_ch_read_raw(dev, AD7293_ADC_VINX, chan->channel, &data);
 			}
-			if (ret)
-				return ret;
 
-			*val = data >> 4;
-
-			return IIO_VAL_INT;
+			break;
 		case IIO_CURRENT:
 			ret =  ad7293_ch_read_raw(dev, AD7293_ADC_ISENSE, chan->channel, &data);
-			if (ret)
-				return ret;
 
-			*val = data >> 4;
-
-			return IIO_VAL_INT;
+			break;
 		case IIO_TEMP:
 			ret =  ad7293_ch_read_raw(dev, AD7293_ADC_TSENSE, chan->channel, &data);
-			if (ret)
-				return ret;
 
-			*val = data >> 4;
-
-			return IIO_VAL_INT;
+			break;
 		default:
 			return -EINVAL;
 		}
+
+		if (ret)
+			return ret;
+
+		*val = data >> 4;
+
+		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_OFFSET:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
@@ -590,31 +585,25 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 				ret = ad7293_get_offset(dev, chan->channel, &data);
 			}
 
-			if (ret)
-				return ret;
-
-			*val = data;
-
-			return IIO_VAL_INT;
+			break;
 		case IIO_CURRENT:
 			ret = ad7293_get_offset(dev, chan->channel + 7, &data);
-			if (ret)
-				return ret;
 
-			*val = data;
-
-			return IIO_VAL_INT;
+			break;
 		case IIO_TEMP:
 			ret = ad7293_get_offset(dev, chan->channel + 4, &data);
-			if (ret)
-				return ret;
 
-			*val = data;
-
-			return IIO_VAL_INT;
+			break;
 		default:
 			return -EINVAL;
 		}
+
+		if (ret)
+			return ret;
+
+		*val = data;
+
+		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
