@@ -307,6 +307,12 @@ enum ad7293_ch_type {
 	AD7293_DAC,
 };
 
+static const int dac_offset_table[] = {0, 1, 2};
+
+static const int isense_gain_table[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+
+static const int adc_range_table[] = {0, 1, 2, 3};
+
 struct ad7293_dev {
 	struct spi_device	*spi;
 	/* Protect against concurrent accesses to the device */
@@ -698,6 +704,35 @@ static int ad7293_reg_access(struct iio_dev *indio_dev,
 	return ret;
 }
 
+static int ad7293_read_avail(struct iio_dev *indio_dev,
+			       struct iio_chan_spec const *chan,
+			       const int **vals, int *type, int *length,
+			       long info)
+{
+	switch (info) {
+	case IIO_CHAN_INFO_OFFSET:
+		*vals = (const int *)dac_offset_table;
+		*type = IIO_VAL_INT;
+		*length = ARRAY_SIZE(dac_offset_table);
+
+		return IIO_AVAIL_LIST;
+	case IIO_CHAN_INFO_HARDWAREGAIN:
+		*vals = (const int *)isense_gain_table;
+		*type = IIO_VAL_INT;
+		*length = ARRAY_SIZE(isense_gain_table);
+
+		return IIO_AVAIL_LIST;
+	case IIO_CHAN_INFO_SCALE:
+		*vals = (const int *)adc_range_table;
+		*type = IIO_VAL_INT;
+		*length = ARRAY_SIZE(adc_range_table);
+
+		return IIO_AVAIL_LIST;
+	default:
+		return -EINVAL;
+	}
+}
+
 #define AD7293_CHAN_ADC(_channel) {				\
 	.type = IIO_VOLTAGE,					\
 	.output = 0,						\
@@ -800,6 +835,7 @@ static int ad7293_init(struct ad7293_dev *dev)
 static const struct iio_info ad7293_info = {
 	.read_raw = ad7293_read_raw,
 	.write_raw = ad7293_write_raw,
+	.read_avail = &ad7293_read_avail,
 	.debugfs_reg_access = &ad7293_reg_access,
 };
 
