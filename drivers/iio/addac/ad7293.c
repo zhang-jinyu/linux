@@ -409,6 +409,20 @@ static int ad7293_ch_read_raw(struct ad7293_state *st, enum ad7293_ch_type type,
 	mutex_lock(&st->lock);
 
 	if (type != AD7293_DAC) {
+		if(type == AD7293_ADC_TSENSE) {
+			ret = __ad7293_spi_write(st, AD7293_REG_TSENSE_BG_EN, 1 << ch);
+			if (ret)
+				goto exit;
+
+			usleep_range(9000, 9900);
+		} else if (type == AD7293_ADC_ISENSE) {
+			ret = __ad7293_spi_write(st, AD7293_REG_ISENSE_BG_EN, 1 << ch);
+			if (ret)
+				goto exit;
+
+			usleep_range(2000, 7000);
+		}
+
 		ret = __ad7293_spi_write(st, reg_wr, data_wr);
 		if (ret)
 			goto exit;
