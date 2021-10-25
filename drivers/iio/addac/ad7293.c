@@ -139,7 +139,7 @@ static const int isense_gain_table[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 
 static const int adc_range_table[] = {0, 1, 2, 3};
 
-struct ad7293_dev {
+struct ad7293_state {
 	struct spi_device	*spi;
 	/* Protect against concurrent accesses to the device */
 	struct mutex		lock;
@@ -147,97 +147,97 @@ struct ad7293_dev {
 	u8 data[3] ____cacheline_aligned;
 };
 
-static int ad7293_page_select(struct ad7293_dev *dev, u8 page_nr)
+static int ad7293_page_select(struct ad7293_state *st, u8 page_nr)
 {
-	dev->data[0] = AD7293_REG_ADDR(AD7293_REG_PAGE_SELECT);
-	dev->data[1] = page_nr;
+	st->data[0] = AD7293_REG_ADDR(AD7293_REG_PAGE_SELECT);
+	st->data[1] = page_nr;
 
-	return spi_write(dev->spi, &dev->data[0], 2);
+	return spi_write(st->spi, &st->data[0], 2);
 }
 
-static int ad7293_spi_read(struct ad7293_dev *dev, unsigned int reg,
+static int ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
 			      unsigned int *val)
 {
 	int ret;
 	struct spi_transfer t = {0};
 
-	if (dev->page_select != AD7293_PAGE_ADDR(reg)) {
-		ret = ad7293_page_select(dev, AD7293_PAGE_ADDR(reg));
+	if (st->page_select != AD7293_PAGE_ADDR(reg)) {
+		ret = ad7293_page_select(st, AD7293_PAGE_ADDR(reg));
 		if (ret)
 			return ret;
 
-		dev->page_select = AD7293_PAGE_ADDR(reg);
+		st->page_select = AD7293_PAGE_ADDR(reg);
 	}
 
-	dev->data[0] = AD7293_READ | AD7293_REG_ADDR(reg);
-	dev->data[1] = 0x0;
-	dev->data[2] = 0x0;
+	st->data[0] = AD7293_READ | AD7293_REG_ADDR(reg);
+	st->data[1] = 0x0;
+	st->data[2] = 0x0;
 
-	t.tx_buf = &dev->data[0];
-	t.rx_buf = &dev->data[0];
+	t.tx_buf = &st->data[0];
+	t.rx_buf = &st->data[0];
 	t.len = 1 + AD7293_TRANSF_LEN(reg);
 
-	ret = spi_sync_transfer(dev->spi, &t, 1);
+	ret = spi_sync_transfer(st->spi, &t, 1);
 	if (ret)
 		return ret;
 
-	*val = ((dev->data[1] << 8) | dev->data[2]) >> (8 * (2 - AD7293_TRANSF_LEN(reg)));
+	*val = ((st->data[1] << 8) | st->data[2]) >> (8 * (2 - AD7293_TRANSF_LEN(reg)));
 
 	return ret;
 }
 
-static int ad7293_spi_write(struct ad7293_dev *dev, unsigned int reg,
+static int ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
 			      unsigned int val)
 {
 	int ret;
 
-	if (dev->page_select != AD7293_PAGE_ADDR(reg)) {
-		ret = ad7293_page_select(dev, AD7293_PAGE_ADDR(reg));
+	if (st->page_select != AD7293_PAGE_ADDR(reg)) {
+		ret = ad7293_page_select(st, AD7293_PAGE_ADDR(reg));
 		if (ret)
 			return ret;
 
-		dev->page_select = AD7293_PAGE_ADDR(reg);
+		st->page_select = AD7293_PAGE_ADDR(reg);
 	}
 
-	dev->data[0] = AD7293_WRITE | AD7293_REG_ADDR(reg);
+	st->data[0] = AD7293_WRITE | AD7293_REG_ADDR(reg);
 
 	if (AD7293_TRANSF_LEN(reg) == 1) {
-		dev->data[1] = val;
+		st->data[1] = val;
 	} else {
-		dev->data[1] = val >> 8;
-		dev->data[2] = val;
+		st->data[1] = val >> 8;
+		st->data[2] = val;
 	}
 
-	return spi_write(dev->spi, &dev->data[0], 1 + AD7293_TRANSF_LEN(reg));
+	return spi_write(st->spi, &st->data[0], 1 + AD7293_TRANSF_LEN(reg));
 }
 
-static int ad7293_spi_update_bits(struct ad7293_dev *dev, unsigned int reg,
+static int ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
 			       unsigned int mask, unsigned int val)
 {
 	int ret;
 	unsigned int data, temp;
 
-	ret = ad7293_spi_read(dev, reg, &data);
+	ret = ad7293_spi_read(st, reg, &data);
 	if (ret)
 		return ret;
 
 	temp = (data & ~mask) | (val & mask);
 
-	return ad7293_spi_write(dev, reg, temp);
+	return ad7293_spi_write(st, reg, temp);
 }
 
-static int ad7293_adc_get_scale(struct ad7293_dev *dev, unsigned int ch, unsigned int *range)
+static int ad7293_adc_get_scale(struct ad7293_state *st, unsigned int ch, unsigned int *range)
 {
 	int ret;
 	unsigned int data;
 
-	ret = ad7293_spi_read(dev, AD7293_REG_VINX_RANGE1, &data);
+	ret = ad7293_spi_read(st, AD7293_REG_VINX_RANGE1, &data);
 	if (ret)
 		return ret;
 
 	*range = (data >> ch) & 0x1;
 
-	ret = ad7293_spi_read(dev, AD7293_REG_VINX_RANGE0, &data);
+	ret = ad7293_spi_read(st, AD7293_REG_VINX_RANGE0, &data);
 	if (ret)
 		return ret;
 
@@ -246,60 +246,60 @@ static int ad7293_adc_get_scale(struct ad7293_dev *dev, unsigned int ch, unsigne
 	return 0;
 }
 
-static int ad7293_adc_set_scale(struct ad7293_dev *dev, unsigned int ch, unsigned int range)
+static int ad7293_adc_set_scale(struct ad7293_state *st, unsigned int ch, unsigned int range)
 {
 	int ret;
 	unsigned int ch_msk = 1 << ch;
 
-	ret = ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE1, ch_msk, (range & 0x1) << ch);
+	ret = ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE1, ch_msk, (range & 0x1) << ch);
 	if (ret)
 		return ret;
 
-	return ad7293_spi_update_bits(dev, AD7293_REG_VINX_RANGE0, ch_msk, (range >> 1) << ch);
+	return ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE0, ch_msk, (range >> 1) << ch);
 }
 
-static int ad7293_get_offset(struct ad7293_dev *dev, unsigned int ch, unsigned int *offset)
+static int ad7293_get_offset(struct ad7293_state *st, unsigned int ch, unsigned int *offset)
 {
 	if (ch < 4)
-		return ad7293_spi_read(dev, AD7293_REG_VIN0_OFFSET + ch, offset);
+		return ad7293_spi_read(st, AD7293_REG_VIN0_OFFSET + ch, offset);
 	else if (ch < 7)
-		return ad7293_spi_read(dev, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
+		return ad7293_spi_read(st, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
 	else if (ch < 11)
-		return ad7293_spi_read(dev, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
+		return ad7293_spi_read(st, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
 	else if (ch < 19)
-		return ad7293_spi_read(dev, AD7293_REG_UNI_VOUT0_OFFSET + (ch - 11), offset);
+		return ad7293_spi_read(st, AD7293_REG_UNI_VOUT0_OFFSET + (ch - 11), offset);
 	else
 		return -EINVAL;
 }
 
-static int ad7293_set_offset(struct ad7293_dev *dev, unsigned int ch, unsigned int offset)
+static int ad7293_set_offset(struct ad7293_state *st, unsigned int ch, unsigned int offset)
 {
 	if (ch < 4)
-		return ad7293_spi_write(dev, AD7293_REG_VIN0_OFFSET + ch, offset);
+		return ad7293_spi_write(st, AD7293_REG_VIN0_OFFSET + ch, offset);
 	else if (ch < 7)
-		return ad7293_spi_write(dev, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
+		return ad7293_spi_write(st, AD7293_REG_TSENSE_INT_OFFSET + (ch - 4), offset);
 	else if (ch < 11)
-		return ad7293_spi_write(dev, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
+		return ad7293_spi_write(st, AD7293_REG_ISENSE0_OFFSET + (ch - 7), offset);
 	else if (ch < 19)
-		return ad7293_spi_update_bits(dev, AD7293_REG_UNI_VOUT0_OFFSET + (ch - 11),
+		return ad7293_spi_update_bits(st, AD7293_REG_UNI_VOUT0_OFFSET + (ch - 11),
 						AD7293_REG_VOUT_OFFSET_MSK,
 						FIELD_PREP(AD7293_REG_VOUT_OFFSET_MSK, offset));
 	else
 		return -EINVAL;
 }
 
-static int ad7293_isense_set_gain(struct ad7293_dev *dev, unsigned int ch, unsigned int gain)
+static int ad7293_isense_set_gain(struct ad7293_state *st, unsigned int ch, unsigned int gain)
 {
 	unsigned int ch_msk = 0xf << (4 * ch);
 
-	return ad7293_spi_update_bits(dev, AD7293_REG_ISENSE_GAIN, ch_msk, gain << (4 * ch));
+	return ad7293_spi_update_bits(st, AD7293_REG_ISENSE_GAIN, ch_msk, gain << (4 * ch));
 }
 
-static int ad7293_isense_get_gain(struct ad7293_dev *dev, unsigned int ch, unsigned int *gain)
+static int ad7293_isense_get_gain(struct ad7293_state *st, unsigned int ch, unsigned int *gain)
 {
 	int ret;
 
-	ret = ad7293_spi_read(dev, AD7293_REG_ISENSE_GAIN, gain);
+	ret = ad7293_spi_read(st, AD7293_REG_ISENSE_GAIN, gain);
 	if (ret)
 		return ret;
 
@@ -308,18 +308,18 @@ static int ad7293_isense_get_gain(struct ad7293_dev *dev, unsigned int ch, unsig
 	return ret;
 }
 
-static int ad7293_dac_write_raw(struct ad7293_dev *dev, unsigned int ch, unsigned int raw)
+static int ad7293_dac_write_raw(struct ad7293_state *st, unsigned int ch, unsigned int raw)
 {
 	int ret;
 
-	ret = ad7293_spi_update_bits(dev, AD7293_REG_DAC_EN, 1 << ch, 1 << ch);
+	ret = ad7293_spi_update_bits(st, AD7293_REG_DAC_EN, 1 << ch, 1 << ch);
 	if (ret)
 		return ret;
 
-	return ad7293_spi_write(dev, AD7293_REG_UNI_VOUT0 + ch, raw << 4);
+	return ad7293_spi_write(st, AD7293_REG_UNI_VOUT0 + ch, raw << 4);
 }
 
-static int ad7293_ch_read_raw(struct ad7293_dev *dev, enum ad7293_ch_type type, unsigned int ch,
+static int ad7293_ch_read_raw(struct ad7293_state *st, enum ad7293_ch_type type, unsigned int ch,
 				unsigned int *raw)
 {
 	int ret;
@@ -353,16 +353,16 @@ static int ad7293_ch_read_raw(struct ad7293_dev *dev, enum ad7293_ch_type type, 
 	}
 
 	if (type != AD7293_DAC) {
-		ret = ad7293_spi_write(dev, reg_wr, data_wr);
+		ret = ad7293_spi_write(st, reg_wr, data_wr);
 		if (ret)
 			return ret;
 
-		ret = ad7293_spi_write(dev, AD7293_REG_CONV_CMD, 0x82);
+		ret = ad7293_spi_write(st, AD7293_REG_CONV_CMD, 0x82);
 		if (ret)
 			return ret;
 	}
 
-	ret = ad7293_spi_read(dev, reg_rd, raw);
+	ret = ad7293_spi_read(st, reg_rd, raw);
 	if (ret)
 		return ret;
 
@@ -373,7 +373,7 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 			    struct iio_chan_spec const *chan,
 			    int *val, int *val2, long info)
 {
-	struct ad7293_dev *dev = iio_priv(indio_dev);
+	struct ad7293_state *st = iio_priv(indio_dev);
 	int ret;
 	unsigned int data;
 
@@ -382,18 +382,18 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output) {
-				ret =  ad7293_ch_read_raw(dev, AD7293_DAC, chan->channel, &data);
+				ret =  ad7293_ch_read_raw(st, AD7293_DAC, chan->channel, &data);
 			} else {
-				ret =  ad7293_ch_read_raw(dev, AD7293_ADC_VINX, chan->channel, &data);
+				ret =  ad7293_ch_read_raw(st, AD7293_ADC_VINX, chan->channel, &data);
 			}
 
 			break;
 		case IIO_CURRENT:
-			ret =  ad7293_ch_read_raw(dev, AD7293_ADC_ISENSE, chan->channel, &data);
+			ret =  ad7293_ch_read_raw(st, AD7293_ADC_ISENSE, chan->channel, &data);
 
 			break;
 		case IIO_TEMP:
-			ret =  ad7293_ch_read_raw(dev, AD7293_ADC_TSENSE, chan->channel, &data);
+			ret =  ad7293_ch_read_raw(st, AD7293_ADC_TSENSE, chan->channel, &data);
 
 			break;
 		default:
@@ -410,20 +410,20 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output) {
-				ret = ad7293_get_offset(dev, chan->channel + 11, &data);
+				ret = ad7293_get_offset(st, chan->channel + 11, &data);
 
 				data = FIELD_GET(AD7293_REG_VOUT_OFFSET_MSK, data);
 			} else {
-				ret = ad7293_get_offset(dev, chan->channel, &data);
+				ret = ad7293_get_offset(st, chan->channel, &data);
 			}
 
 			break;
 		case IIO_CURRENT:
-			ret = ad7293_get_offset(dev, chan->channel + 7, &data);
+			ret = ad7293_get_offset(st, chan->channel + 7, &data);
 
 			break;
 		case IIO_TEMP:
-			ret = ad7293_get_offset(dev, chan->channel + 4, &data);
+			ret = ad7293_get_offset(st, chan->channel + 4, &data);
 
 			break;
 		default:
@@ -439,7 +439,7 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			ret = ad7293_adc_get_scale(dev, chan->channel, &data);
+			ret = ad7293_adc_get_scale(st, chan->channel, &data);
 			if (ret)
 				return ret;
 
@@ -456,7 +456,7 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		ret = ad7293_isense_get_gain(dev, chan->channel, &data);
+		ret = ad7293_isense_get_gain(st, chan->channel, &data);
 		if (ret)
 			return ret;
 
@@ -472,14 +472,14 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 			     struct iio_chan_spec const *chan,
 			     int val, int val2, long info)
 {
-	struct ad7293_dev *dev = iio_priv(indio_dev);
+	struct ad7293_state *st = iio_priv(indio_dev);
 
 	switch (info) {
 	case IIO_CHAN_INFO_RAW:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if(chan->output)
-				return ad7293_dac_write_raw(dev, chan->channel, val);
+				return ad7293_dac_write_raw(st, chan->channel, val);
 
 			return -EINVAL;
 		default:
@@ -489,26 +489,26 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 		switch (chan->type) {
 		case IIO_VOLTAGE:
 			if (chan->output){
-				return ad7293_set_offset(dev, chan->channel + 11, val);
+				return ad7293_set_offset(st, chan->channel + 11, val);
 			} else {
-				return ad7293_set_offset(dev, chan->channel, val);
+				return ad7293_set_offset(st, chan->channel, val);
 			}
 		case IIO_CURRENT:
-			return ad7293_set_offset(dev, chan->channel + 7, val);
+			return ad7293_set_offset(st, chan->channel + 7, val);
 		case IIO_TEMP:
-			return ad7293_set_offset(dev, chan->channel + 4, val);
+			return ad7293_set_offset(st, chan->channel + 4, val);
 		default:
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_SCALE:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			return ad7293_adc_set_scale(dev, chan->channel, val);
+			return ad7293_adc_set_scale(st, chan->channel, val);
 		default:
 			return -EINVAL;
 		}
 	case IIO_CHAN_INFO_HARDWAREGAIN:
-		return ad7293_isense_set_gain(dev, chan->channel, val);
+		return ad7293_isense_set_gain(st, chan->channel, val);
 	default:
 		return -EINVAL;
 	}
@@ -519,13 +519,13 @@ static int ad7293_reg_access(struct iio_dev *indio_dev,
 				unsigned int write_val,
 				unsigned int *read_val)
 {
-	struct ad7293_dev *dev = iio_priv(indio_dev);
+	struct ad7293_state *st = iio_priv(indio_dev);
 	int ret;
 
 	if (read_val)
-		ret = ad7293_spi_read(dev, reg, read_val);
+		ret = ad7293_spi_read(st, reg, read_val);
 	else
-		ret = ad7293_spi_write(dev, reg, write_val);
+		ret = ad7293_spi_write(st, reg, write_val);
 
 	return ret;
 }
@@ -630,23 +630,23 @@ static const struct iio_chan_spec ad7293_channels[] = {
 	AD7293_CHAN_DAC(7)
 };
 
-static int ad7293_init(struct ad7293_dev *dev)
+static int ad7293_init(struct ad7293_state *st)
 {
 	int ret;
 	unsigned int chip_id;
-	struct spi_device *spi = dev->spi;
+	struct spi_device *spi = st->spi;
 
 	/* Perform software reset */
-	ret = ad7293_spi_write(dev, AD7293_REG_SOFT_RESET, 0x7293);
+	ret = ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x7293);
 	if (ret < 0)
 		return ret;
 
-	ret = ad7293_spi_write(dev, AD7293_REG_SOFT_RESET, 0x0000);
+	ret = ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x0000);
 	if (ret < 0)
 		return ret;
 
 	/* Check Chip ID */
-	ret = ad7293_spi_read(dev, AD7293_REG_DEVICE_ID, &chip_id);
+	ret = ad7293_spi_read(st, AD7293_REG_DEVICE_ID, &chip_id);
 	if (ret < 0)
 		return ret;
 
@@ -655,12 +655,12 @@ static int ad7293_init(struct ad7293_dev *dev)
 		return -EINVAL;
 	}
 
-	/* Enable background conversions for temperature and current */
-	ret = ad7293_spi_write(dev, AD7293_REG_TSENSE_BG_EN, 0x7);
+	/* Enable background conversions for temperature and current (required). */
+	ret = ad7293_spi_write(st, AD7293_REG_TSENSE_BG_EN, 0x7);
 	if (ret)
 		return ret;
 
-	ret = ad7293_spi_write(dev, AD7293_REG_ISENSE_BG_EN, 0xF);
+	ret = ad7293_spi_write(st, AD7293_REG_ISENSE_BG_EN, 0xF);
 	if (ret)
 		return ret;
 
@@ -677,14 +677,14 @@ static const struct iio_info ad7293_info = {
 static int ad7293_probe(struct spi_device *spi)
 {
 	struct iio_dev *indio_dev;
-	struct ad7293_dev *dev;
+	struct ad7293_state *st;
 	int ret;
 
-	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*dev));
+	indio_dev = devm_iio_device_alloc(&spi->dev, sizeof(*st));
 	if (!indio_dev)
 		return -ENOMEM;
 
-	dev = iio_priv(indio_dev);
+	st = iio_priv(indio_dev);
 	
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->info = &ad7293_info;
@@ -692,12 +692,12 @@ static int ad7293_probe(struct spi_device *spi)
 	indio_dev->channels = ad7293_channels;
 	indio_dev->num_channels = ARRAY_SIZE(ad7293_channels);
 
-	dev->spi = spi;
-	dev->page_select = 0;
+	st->spi = spi;
+	st->page_select = 0;
 
-	mutex_init(&dev->lock);
+	mutex_init(&st->lock);
 
-	ret = ad7293_init(dev);
+	ret = ad7293_init(st);
 	if (ret)
 		return ret;
 
