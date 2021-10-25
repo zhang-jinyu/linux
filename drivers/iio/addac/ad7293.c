@@ -829,6 +829,15 @@ static int ad7293_init(struct ad7293_dev *dev)
 		return -EINVAL;
 	}
 
+	/* Enable background conversions for temperature and current */
+	ret = ad7293_spi_write(dev, AD7293_REG_TSENSE_BG_EN, 0x7);
+	if (ret)
+		return ret;
+
+	ret = ad7293_spi_write(dev, AD7293_REG_ISENSE_BG_EN, 0xF);
+	if (ret)
+		return ret;
+
 	return 0;
 }
 
