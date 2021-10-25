@@ -7,10 +7,10 @@
 
 #include <linux/bitfield.h>
 #include <linux/bits.h>
+#include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/iio/iio.h>
 #include <linux/module.h>
-#include <linux/regmap.h>
 #include <linux/spi/spi.h>
 
 #define AD7293_READ				(1 << 7)
@@ -155,7 +155,7 @@ static int ad7293_page_select(struct ad7293_state *st, u8 page_nr)
 	return spi_write(st->spi, &st->data[0], 2);
 }
 
-static int ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
+static int __ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
 			      unsigned int *val)
 {
 	int ret;
@@ -186,7 +186,19 @@ static int ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
 	return ret;
 }
 
-static int ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
+static int ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
+			      unsigned int *val)
+{
+	int ret;
+
+	mutex_lock(&st->lock);
+	ret = __ad7293_spi_read(st, reg, val);
+	mutex_unlock(&st->lock);
+
+	return ret;
+}
+
+static int __ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
 			      unsigned int val)
 {
 	int ret;
@@ -211,7 +223,19 @@ static int ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
 	return spi_write(st->spi, &st->data[0], 1 + AD7293_TRANSF_LEN(reg));
 }
 
-static int ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
+static int ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
+			      unsigned int val)
+{
+	int ret;
+
+	mutex_lock(&st->lock);
+	ret = __ad7293_spi_write(st, reg, val);
+	mutex_unlock(&st->lock);
+
+	return ret;
+}
+
+static int __ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
 			       unsigned int mask, unsigned int val)
 {
 	int ret;
@@ -226,24 +250,41 @@ static int ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
 	return ad7293_spi_write(st, reg, temp);
 }
 
+static int ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
+			       unsigned int mask, unsigned int val)
+{
+	int ret;
+
+	mutex_lock(&st->lock);
+	ret = ad7293_spi_update_bits(st, reg, mask, val);
+	mutex_unlock(&st->lock);
+
+	return ret;
+}
+
 static int ad7293_adc_get_scale(struct ad7293_state *st, unsigned int ch, unsigned int *range)
 {
 	int ret;
 	unsigned int data;
 
-	ret = ad7293_spi_read(st, AD7293_REG_VINX_RANGE1, &data);
+	mutex_lock(&st->lock);
+
+	ret = __ad7293_spi_read(st, AD7293_REG_VINX_RANGE1, &data);
 	if (ret)
-		return ret;
+		goto exit;
 
 	*range = (data >> ch) & 0x1;
 
-	ret = ad7293_spi_read(st, AD7293_REG_VINX_RANGE0, &data);
+	ret = __ad7293_spi_read(st, AD7293_REG_VINX_RANGE0, &data);
 	if (ret)
-		return ret;
+		goto exit;
 
 	*range |= ((data >> ch) & 0x1) << 1;
 
-	return 0;
+exit:
+	mutex_unlock(&st->lock);
+
+	return ret;
 }
 
 static int ad7293_adc_set_scale(struct ad7293_state *st, unsigned int ch, unsigned int range)
@@ -251,11 +292,17 @@ static int ad7293_adc_set_scale(struct ad7293_state *st, unsigned int ch, unsign
 	int ret;
 	unsigned int ch_msk = 1 << ch;
 
-	ret = ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE1, ch_msk, (range & 0x1) << ch);
+	mutex_lock(&st->lock);
+	ret = __ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE1, ch_msk, (range & 0x1) << ch);
 	if (ret)
-		return ret;
+		goto exit;
 
-	return ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE0, ch_msk, (range >> 1) << ch);
+	ret = __ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE0, ch_msk, (range >> 1) << ch);
+
+exit:
+	mutex_unlock(&st->lock);
+
+	return ret;
 }
 
 static int ad7293_get_offset(struct ad7293_state *st, unsigned int ch, unsigned int *offset)
@@ -312,11 +359,18 @@ static int ad7293_dac_write_raw(struct ad7293_state *st, unsigned int ch, unsign
 {
 	int ret;
 
-	ret = ad7293_spi_update_bits(st, AD7293_REG_DAC_EN, 1 << ch, 1 << ch);
-	if (ret)
-		return ret;
+	mutex_lock(&st->lock);
 
-	return ad7293_spi_write(st, AD7293_REG_UNI_VOUT0 + ch, raw << 4);
+	ret = __ad7293_spi_update_bits(st, AD7293_REG_DAC_EN, 1 << ch, 1 << ch);
+	if (ret)
+		goto exit;
+
+	ret =  __ad7293_spi_write(st, AD7293_REG_UNI_VOUT0 + ch, raw << 4);
+
+exit:
+	mutex_unlock(&st->lock);
+
+	return ret;
 }
 
 static int ad7293_ch_read_raw(struct ad7293_state *st, enum ad7293_ch_type type, unsigned int ch,
@@ -352,21 +406,24 @@ static int ad7293_ch_read_raw(struct ad7293_state *st, enum ad7293_ch_type type,
 		return -EINVAL;
 	}
 
-	if (type != AD7293_DAC) {
-		ret = ad7293_spi_write(st, reg_wr, data_wr);
-		if (ret)
-			return ret;
+	mutex_lock(&st->lock);
 
-		ret = ad7293_spi_write(st, AD7293_REG_CONV_CMD, 0x82);
+	if (type != AD7293_DAC) {
+		ret = __ad7293_spi_write(st, reg_wr, data_wr);
 		if (ret)
-			return ret;
+			goto exit;
+
+		ret = __ad7293_spi_write(st, AD7293_REG_CONV_CMD, 0x82);
+		if (ret)
+			goto exit;
 	}
 
-	ret = ad7293_spi_read(st, reg_rd, raw);
-	if (ret)
-		return ret;
+	ret = __ad7293_spi_read(st, reg_rd, raw);
 
-	return 0;
+exit:
+	mutex_unlock(&st->lock);
+
+	return ret;
 }
 
 static int ad7293_read_raw(struct iio_dev *indio_dev,
@@ -637,16 +694,16 @@ static int ad7293_init(struct ad7293_state *st)
 	struct spi_device *spi = st->spi;
 
 	/* Perform software reset */
-	ret = ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x7293);
+	ret = __ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x7293);
 	if (ret < 0)
 		return ret;
 
-	ret = ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x0000);
+	ret = __ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x0000);
 	if (ret < 0)
 		return ret;
 
 	/* Check Chip ID */
-	ret = ad7293_spi_read(st, AD7293_REG_DEVICE_ID, &chip_id);
+	ret = __ad7293_spi_read(st, AD7293_REG_DEVICE_ID, &chip_id);
 	if (ret < 0)
 		return ret;
 
@@ -654,15 +711,6 @@ static int ad7293_init(struct ad7293_state *st)
 		dev_err(&spi->dev, "Invalid Chip ID.\n");
 		return -EINVAL;
 	}
-
-	/* Enable background conversions for temperature and current (required). */
-	ret = ad7293_spi_write(st, AD7293_REG_TSENSE_BG_EN, 0x7);
-	if (ret)
-		return ret;
-
-	ret = ad7293_spi_write(st, AD7293_REG_ISENSE_BG_EN, 0xF);
-	if (ret)
-		return ret;
 
 	return 0;
 }
