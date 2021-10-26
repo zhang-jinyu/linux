@@ -709,16 +709,16 @@ static int ad7293_init(struct ad7293_state *st)
 
 	/* Perform software reset */
 	ret = __ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x7293);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	ret = __ad7293_spi_write(st, AD7293_REG_SOFT_RESET, 0x0000);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	/* Check Chip ID */
 	ret = __ad7293_spi_read(st, AD7293_REG_DEVICE_ID, &chip_id);
-	if (ret < 0)
+	if (ret)
 		return ret;
 
 	if (chip_id != AD7293_CHIP_ID) {
