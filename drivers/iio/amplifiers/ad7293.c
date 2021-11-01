@@ -13,11 +13,11 @@
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 
-#define AD7293_READ				(1 << 7)
+#define AD7293_READ				BIT(7)
 #define AD7293_WRITE				(0 << 7)
 #define AD7293_ADDR(x)				((x) & 0xFF)
 
-#define AD7293_R1B				(1 << 16)
+#define AD7293_R1B				BIT(16)
 #define AD7293_R2B				(2 << 16)
 #define AD7293_TRANSF_LEN(x)			((x) >> 16)
 
@@ -124,7 +124,10 @@
 #define AD7293_REG_BI_VOUT3_OFFSET		(AD7293_R1B | AD7293_PAGE(0x0E) | 0x37)
 
 /* AD7293 DAC Offset Register Bit Definition */
-#define AD7293_REG_VOUT_OFFSET_MSK		GENMASK(5,4)
+#define AD7293_REG_VOUT_OFFSET_MSK		GENMASK(5, 4)
+#define AD7293_REG_DATA_RAW_MSK			GENMASK(15, 4)
+#define AD7293_REG_VINX_RANGE_GET_CH_MSK(x, ch)	(((x) >> (ch)) & 0x1)
+#define AD7293_REG_VINX_RANGE_SET_CH_MSK(x, ch)	(((x) & 0x1) << (ch))
 
 enum ad7293_ch_type {
 	AD7293_ADC_VINX,
@@ -156,7 +159,7 @@ static int ad7293_page_select(struct ad7293_state *st, u8 page_nr)
 }
 
 static int __ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
-			      unsigned int *val)
+			     unsigned int *val)
 {
 	int ret;
 	struct spi_transfer t = {0};
@@ -183,11 +186,11 @@ static int __ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
 
 	*val = ((st->data[1] << 8) | st->data[2]) >> (8 * (2 - AD7293_TRANSF_LEN(reg)));
 
-	return ret;
+	return 0;
 }
 
 static int ad7293_spi_read(struct ad7293_state *st, unsigned int reg,
-			      unsigned int *val)
+			   unsigned int *val)
 {
 	int ret;
 
@@ -224,7 +227,7 @@ static int __ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
 }
 
 static int ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
-			      unsigned int val)
+			    unsigned int val)
 {
 	int ret;
 
@@ -236,27 +239,27 @@ static int ad7293_spi_write(struct ad7293_state *st, unsigned int reg,
 }
 
 static int __ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
-			       unsigned int mask, unsigned int val)
+				    unsigned int mask, unsigned int val)
 {
 	int ret;
 	unsigned int data, temp;
 
-	ret = ad7293_spi_read(st, reg, &data);
+	ret = __ad7293_spi_read(st, reg, &data);
 	if (ret)
 		return ret;
 
 	temp = (data & ~mask) | (val & mask);
 
-	return ad7293_spi_write(st, reg, temp);
+	return __ad7293_spi_write(st, reg, temp);
 }
 
 static int ad7293_spi_update_bits(struct ad7293_state *st, unsigned int reg,
-			       unsigned int mask, unsigned int val)
+				  unsigned int mask, unsigned int val)
 {
 	int ret;
 
 	mutex_lock(&st->lock);
-	ret = ad7293_spi_update_bits(st, reg, mask, val);
+	ret = __ad7293_spi_update_bits(st, reg, mask, val);
 	mutex_unlock(&st->lock);
 
 	return ret;
@@ -273,13 +276,13 @@ static int ad7293_adc_get_scale(struct ad7293_state *st, unsigned int ch, unsign
 	if (ret)
 		goto exit;
 
-	*range = (data >> ch) & 0x1;
+	*range = AD7293_REG_VINX_RANGE_GET_CH_MSK(data, ch);
 
 	ret = __ad7293_spi_read(st, AD7293_REG_VINX_RANGE0, &data);
 	if (ret)
 		goto exit;
 
-	*range |= ((data >> ch) & 0x1) << 1;
+	*range |= AD7293_REG_VINX_RANGE_GET_CH_MSK(data, ch) << 1;
 
 exit:
 	mutex_unlock(&st->lock);
@@ -293,11 +296,13 @@ static int ad7293_adc_set_scale(struct ad7293_state *st, unsigned int ch, unsign
 	unsigned int ch_msk = 1 << ch;
 
 	mutex_lock(&st->lock);
-	ret = __ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE1, ch_msk, (range & 0x1) << ch);
+	ret = __ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE1, ch_msk,
+				       AD7293_REG_VINX_RANGE_SET_CH_MSK(range, ch));
 	if (ret)
 		goto exit;
 
-	ret = __ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE0, ch_msk, (range >> 1) << ch);
+	ret = __ad7293_spi_update_bits(st, AD7293_REG_VINX_RANGE0, ch_msk,
+				       AD7293_REG_VINX_RANGE_SET_CH_MSK((range >> 1), ch));
 
 exit:
 	mutex_unlock(&st->lock);
@@ -337,7 +342,7 @@ static int ad7293_set_offset(struct ad7293_state *st, unsigned int ch, unsigned 
 
 static int ad7293_isense_set_gain(struct ad7293_state *st, unsigned int ch, unsigned int gain)
 {
-	unsigned int ch_msk = 0xf << (4 * ch);
+	unsigned int ch_msk = (0xf << (4 * ch));
 
 	return ad7293_spi_update_bits(st, AD7293_REG_ISENSE_GAIN, ch_msk, gain << (4 * ch));
 }
@@ -365,7 +370,8 @@ static int ad7293_dac_write_raw(struct ad7293_state *st, unsigned int ch, unsign
 	if (ret)
 		goto exit;
 
-	ret =  __ad7293_spi_write(st, AD7293_REG_UNI_VOUT0 + ch, raw << 4);
+	ret =  __ad7293_spi_write(st, AD7293_REG_UNI_VOUT0 + ch,
+				  FIELD_PREP(AD7293_REG_DATA_RAW_MSK, raw));
 
 exit:
 	mutex_unlock(&st->lock);
@@ -374,7 +380,7 @@ exit:
 }
 
 static int ad7293_ch_read_raw(struct ad7293_state *st, enum ad7293_ch_type type, unsigned int ch,
-				unsigned int *raw)
+			      unsigned int *raw)
 {
 	int ret;
 	unsigned int reg_wr, reg_rd, data_wr;
@@ -409,7 +415,7 @@ static int ad7293_ch_read_raw(struct ad7293_state *st, enum ad7293_ch_type type,
 	mutex_lock(&st->lock);
 
 	if (type != AD7293_DAC) {
-		if(type == AD7293_ADC_TSENSE) {
+		if (type == AD7293_ADC_TSENSE) {
 			ret = __ad7293_spi_write(st, AD7293_REG_TSENSE_BG_EN, 1 << ch);
 			if (ret)
 				goto exit;
@@ -441,8 +447,8 @@ exit:
 }
 
 static int ad7293_read_raw(struct iio_dev *indio_dev,
-			    struct iio_chan_spec const *chan,
-			    int *val, int *val2, long info)
+			   struct iio_chan_spec const *chan,
+			   int *val, int *val2, long info)
 {
 	struct ad7293_state *st = iio_priv(indio_dev);
 	int ret;
@@ -452,11 +458,10 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_RAW:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			if (chan->output) {
+			if (chan->output)
 				ret =  ad7293_ch_read_raw(st, AD7293_DAC, chan->channel, &data);
-			} else {
+			else
 				ret =  ad7293_ch_read_raw(st, AD7293_ADC_VINX, chan->channel, &data);
-			}
 
 			break;
 		case IIO_CURRENT:
@@ -474,7 +479,7 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 		if (ret)
 			return ret;
 
-		*val = data >> 4;
+		*val = FIELD_GET(AD7293_REG_DATA_RAW_MSK, data);
 
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_OFFSET:
@@ -540,8 +545,8 @@ static int ad7293_read_raw(struct iio_dev *indio_dev,
 }
 
 static int ad7293_write_raw(struct iio_dev *indio_dev,
-			     struct iio_chan_spec const *chan,
-			     int val, int val2, long info)
+			    struct iio_chan_spec const *chan,
+			    int val, int val2, long info)
 {
 	struct ad7293_state *st = iio_priv(indio_dev);
 
@@ -549,7 +554,7 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_RAW:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			if(chan->output)
+			if (chan->output)
 				return ad7293_dac_write_raw(st, chan->channel, val);
 
 			return -EINVAL;
@@ -559,11 +564,10 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 	case IIO_CHAN_INFO_OFFSET:
 		switch (chan->type) {
 		case IIO_VOLTAGE:
-			if (chan->output){
+			if (chan->output)
 				return ad7293_set_offset(st, chan->channel + 11, val);
-			} else {
+			else
 				return ad7293_set_offset(st, chan->channel, val);
-			}
 		case IIO_CURRENT:
 			return ad7293_set_offset(st, chan->channel + 7, val);
 		case IIO_TEMP:
@@ -586,9 +590,9 @@ static int ad7293_write_raw(struct iio_dev *indio_dev,
 }
 
 static int ad7293_reg_access(struct iio_dev *indio_dev,
-				unsigned int reg,
-				unsigned int write_val,
-				unsigned int *read_val)
+			     unsigned int reg,
+			     unsigned int write_val,
+			     unsigned int *read_val)
 {
 	struct ad7293_state *st = iio_priv(indio_dev);
 	int ret;
@@ -602,9 +606,9 @@ static int ad7293_reg_access(struct iio_dev *indio_dev,
 }
 
 static int ad7293_read_avail(struct iio_dev *indio_dev,
-			       struct iio_chan_spec const *chan,
-			       const int **vals, int *type, int *length,
-			       long info)
+			     struct iio_chan_spec const *chan,
+			     const int **vals, int *type, int *length,
+			     long info)
 {
 	switch (info) {
 	case IIO_CHAN_INFO_OFFSET:
@@ -636,10 +640,10 @@ static int ad7293_read_avail(struct iio_dev *indio_dev,
 	.indexed = 1,						\
 	.channel = _channel,					\
 	.info_mask_separate =					\
-		BIT(IIO_CHAN_INFO_RAW) | 			\
-		BIT(IIO_CHAN_INFO_SCALE) | 			\
-		BIT(IIO_CHAN_INFO_OFFSET), 			\
-	.info_mask_shared_by_type_available = 			\
+		BIT(IIO_CHAN_INFO_RAW) |			\
+		BIT(IIO_CHAN_INFO_SCALE) |			\
+		BIT(IIO_CHAN_INFO_OFFSET),			\
+	.info_mask_shared_by_type_available =			\
 		BIT(IIO_CHAN_INFO_SCALE)			\
 }
 
@@ -649,8 +653,8 @@ static int ad7293_read_avail(struct iio_dev *indio_dev,
 	.indexed = 1,						\
 	.channel = _channel,					\
 	.info_mask_separate =					\
-		BIT(IIO_CHAN_INFO_RAW) | 			\
-		BIT(IIO_CHAN_INFO_OFFSET), 			\
+		BIT(IIO_CHAN_INFO_RAW) |			\
+		BIT(IIO_CHAN_INFO_OFFSET),			\
 	.info_mask_shared_by_type_available =			\
 		BIT(IIO_CHAN_INFO_OFFSET),			\
 }
@@ -661,7 +665,7 @@ static int ad7293_read_avail(struct iio_dev *indio_dev,
 	.indexed = 1,						\
 	.channel = _channel,					\
 	.info_mask_separate =					\
-		BIT(IIO_CHAN_INFO_RAW) | 			\
+		BIT(IIO_CHAN_INFO_RAW) |			\
 		BIT(IIO_CHAN_INFO_OFFSET) |			\
 		BIT(IIO_CHAN_INFO_HARDWAREGAIN),		\
 	.info_mask_shared_by_type_available =			\
@@ -674,9 +678,9 @@ static int ad7293_read_avail(struct iio_dev *indio_dev,
 	.indexed = 1,						\
 	.channel = _channel,					\
 	.info_mask_separate =					\
-		BIT(IIO_CHAN_INFO_RAW) | 			\
-		BIT(IIO_CHAN_INFO_OFFSET), 			\
-	.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE) 	\
+		BIT(IIO_CHAN_INFO_RAW) |			\
+		BIT(IIO_CHAN_INFO_OFFSET),			\
+	.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE)	\
 }
 
 static const struct iio_chan_spec ad7293_channels[] = {
@@ -747,8 +751,7 @@ static int ad7293_probe(struct spi_device *spi)
 		return -ENOMEM;
 
 	st = iio_priv(indio_dev);
-	
-	indio_dev->dev.parent = &spi->dev;
+
 	indio_dev->info = &ad7293_info;
 	indio_dev->name = "ad7293";
 	indio_dev->channels = ad7293_channels;
