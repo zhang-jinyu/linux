@@ -301,7 +301,7 @@ static int adxl355_read_axis(struct adxl355_data *data, u8 addr)
 	if (ret)
 		return ret;
 
-	return get_unaligned_be24(data->transf_buf);
+	return ((data->transf_buf[0] << 16) | (data->transf_buf[1] << 8) | data->transf_buf[2]);
 }
 
 static int adxl355_find_match(const int (*freq_tbl)[2], const int n,
@@ -693,8 +693,8 @@ static int adxl355_probe_trigger(struct iio_dev *indio_dev, int irq)
 			       &iio_trigger_generic_data_rdy_poll,
 			       IRQF_ONESHOT, "adxl355_irq", data->dready_trig);
 	if (ret)
-		return dev_err_probe(data->dev, ret, "request irq %d failed\n",
-				     irq);
+		dev_err(data->dev,"request irq failed\n");
+		return ret;
 
 	ret = devm_iio_trigger_register(data->dev, data->dready_trig);
 	if (ret) {
