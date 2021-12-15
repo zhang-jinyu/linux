@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * ADRV2CRR-FMC using ADRV9009-ZU11EG Rev.B System on Module
+ *
+ * https://wiki.analog.com/resources/eval/user-guides/adrv9009
+ * https://wiki.analog.com/resources/tools-software/linux-drivers/iio-transceiver/adrv9009
+ * https://wiki.analog.com/resources/tools-software/linux-software/adrv9009_advanced_plugin
+ * https://wiki.analog.com/resources/eval/user-guides/adrv9009-zu11eg/adrv2crr-fmc_carrier_board
+ *
+ * hdl_project: <adrv9009zu11eg/adrv2crr_fmc>
+ * board_revision: <B>
+ *
+ * Copyright (C) 2021 Analog Devices Inc.
+ */
+
+#include "zynqmp-adrv9009-zu11eg-revb-adrv2crr-fmc-revb-jesd204-fsm.dts"
+
+/ {
+	vcm: fixedregulator@0 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcm";
+		regulator-min-microvolt = <1500000>;
+		regulator-max-microvolt = <1500000>;
+		regulator-boot-on;
+	};
+};
+
+&fpga_axi {
+	axi_i2c_1: i2c@83000000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clock-names = "s_axi_aclk";
+		clocks = <&zynqmp_clk 71>;
+		compatible = "xlnx,axi-iic-2.0", "xlnx,xps-iic-2.00.a";
+		interrupt-names = "iic2intc_irpt";
+		interrupt-parent = <&gic>;
+		interrupts = <0 90 IRQ_TYPE_LEVEL_HIGH>;
+		reg = <0x83000000 0x1000>;
+	};
+
+	axi_i2c_2: i2c@83100000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clock-names = "s_axi_aclk";
+		clocks = <&zynqmp_clk 71>;
+		compatible = "xlnx,axi-iic-2.0", "xlnx,xps-iic-2.00.a";
+		interrupt-names = "iic2intc_irpt";
+		interrupt-parent = <&gic>;
+		interrupts = <0 91 IRQ_TYPE_LEVEL_HIGH>;
+		reg = <0x83100000 0x1000>;
+	};
+
+	axi_spi_1: spi@84000000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		bits-per-word = <8>;
+		compatible = "xlnx,xps-spi-2.00.a";
+		reg = <0x0 0x84000000 0x1000>;
+		fifo-size = <16>;
+		interrupts = <0 92 IRQ_TYPE_EDGE_RISING>;
+		num-cs = <0x8>;
+		xlnx,num-ss-bits = <0x8>;
+		xlnx,spi-mode = <0>;
+	};
+
+	axi_spi_2: spi@84500000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		bits-per-word = <8>;
+		compatible = "xlnx,xps-spi-2.00.a";
+		reg = <0x0 0x84500000 0x1000>;
+		fifo-size = <16>;
+		interrupts = <0 93 IRQ_TYPE_EDGE_RISING>;
+		num-cs = <0x8>;
+		xlnx,num-ss-bits = <0x8>;
+		xlnx,spi-mode = <0>;
+	};
+
+};
+
+&axi_i2c_1 {
+	ad7291_1@0 {
+		label = "ADC_I2C_1"
+		compatible = "adi,ad7291";
+		reg = <0x2A>;
+	}
+}
+
+&axi_i2c_2 {
+	ad7291_2@0 {
+		label = "ADC_I2C_2"
+		compatible = "adi,ad7291";
+		reg = <0x2B>;
+	}
+}
+
+&axi_spi_1 {
+	ad5761_1@0 {
+		label = "DAC_SPI_1"
+		compatible = "adi,ad5761";
+		reg = <0>;
+		spi-max-frequency = <500000>;
+	};
+};
+
+&axi_spi_2 {
+	ad5761_2@0 {
+		label = "DAC_SPI_2"
+		compatible = "adi,ad5761";
+		reg = <0>;
+		spi-max-frequency = <500000>;
+	};
+};
