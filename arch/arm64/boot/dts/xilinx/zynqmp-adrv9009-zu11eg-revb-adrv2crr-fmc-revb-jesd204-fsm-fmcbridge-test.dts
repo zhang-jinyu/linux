@@ -25,7 +25,7 @@
 		interrupt-names = "iic2intc_irpt";
 		interrupt-parent = <&gic>;
 		interrupts = <0 90 IRQ_TYPE_LEVEL_HIGH>;
-		reg = <0x83000000 0x1000>;
+		reg = <0x0 0x83000000 0x1000>;
 	};
 
 	axi_i2c_2: i2c@83100000 {
@@ -37,7 +37,7 @@
 		interrupt-names = "iic2intc_irpt";
 		interrupt-parent = <&gic>;
 		interrupts = <0 91 IRQ_TYPE_LEVEL_HIGH>;
-		reg = <0x83100000 0x1000>;
+		reg = <0x0 0x83100000 0x1000>;
 	};
 
 	axi_spi_1: spi@84000000 {
@@ -76,7 +76,7 @@
 		interrupt-controller;
 		interrupt-names = "ip2intc_irpt";
 		interrupt-parent = <&gic>;
-		interrupts = <0 94 4>;
+		interrupts = <0 9 4>;
 		reg = <0x0 0x86000000 0x1000>;
 		xlnx,all-inputs = <0x0>;
 		xlnx,all-inputs-2 = <0x0>;
@@ -94,24 +94,24 @@
 };
 
 &axi_i2c_1 {
-	ad7291_1@0 {
-		label = "ADC_I2C_1"
+	ad7291_1@2a {
+		label = "ADC_I2C_1";
 		compatible = "adi,ad7291";
-		reg = <0x2A>;
-	}
-}
+		reg = <0x2a>;
+	};
+};
 
 &axi_i2c_2 {
-	ad7291_2@0 {
-		label = "ADC_I2C_2"
+	ad7291_2@2b {
+		label = "ADC_I2C_2";
 		compatible = "adi,ad7291";
-		reg = <0x2B>;
-	}
-}
+		reg = <0x2b>;
+	};
+};
 
 &axi_spi_1 {
 	ad5761_1@0 {
-		label = "DAC_SPI_1"
+		label = "DAC_SPI_1";
 		compatible = "adi,ad5761";
 		reg = <0>;
 		spi-max-frequency = <500000>;
@@ -120,7 +120,7 @@
 
 &axi_spi_2 {
 	ad5761_2@0 {
-		label = "DAC_SPI_2"
+		label = "DAC_SPI_2";
 		compatible = "adi,ad5761";
 		reg = <0>;
 		spi-max-frequency = <500000>;
