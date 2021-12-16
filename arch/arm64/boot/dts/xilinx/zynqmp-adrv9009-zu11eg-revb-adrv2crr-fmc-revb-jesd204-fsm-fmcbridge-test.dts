@@ -110,18 +110,18 @@
 };
 
 &axi_spi_1 {
-	ad5761_1@0 {
+	ad5721r_1@0 {
 		label = "DAC_SPI_1";
-		compatible = "adi,ad5761";
+		compatible = "adi,ad5721r";
 		reg = <0>;
 		spi-max-frequency = <500000>;
 	};
 };
 
 &axi_spi_2 {
-	ad5761_2@0 {
+	ad5721r_2@0 {
 		label = "DAC_SPI_2";
-		compatible = "adi,ad5761";
+		compatible = "adi,ad5721r";
 		reg = <0>;
 		spi-max-frequency = <500000>;
 	};
