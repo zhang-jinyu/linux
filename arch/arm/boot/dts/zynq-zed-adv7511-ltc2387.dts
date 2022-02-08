@@ -30,12 +30,13 @@
 			compatible = "fixed-clock";
 			clock-frequency = <15000000>;
 		};
-        cnv_ext_clk: ext-clk {
-            #clock-cells = <0x0>;
-            compatible = "fixed-clock";
-            clock-frequency = <210000000>;
-            clock-output-names = "cnv_ext_clk";
-        };
+	
+		cnv_ext_clk: ext-clk {
+			#clock-cells = <0x0>;
+			compatible = "fixed-clock";
+			clock-frequency = <210000000>;
+			clock-output-names = "cnv_ext_clk";
+		};
 	};
 };
 
@@ -68,12 +69,12 @@
 		dma-names = "rx";
 	};
 
-    axi_pwm_gen: axi-pwm-gen@44a60000 {
-        compatible = "adi,axi-pwmgen";
-        reg = <0x44a60000 0x1000>;
-        label = "ltc2387_cnv";
-        #pwm-cells = <2>;
-        clocks = <&cnv_ext_clk>;
-    };
+	axi_pwm_gen: axi-pwm-gen@44a60000 {
+		compatible = "adi,axi-pwmgen";
+		reg = <0x44a60000 0x1000>;
+		label = "ltc2387_cnv";
+		#pwm-cells = <2>;
+		clocks = <&cnv_ext_clk>;
+	};
 };
 
