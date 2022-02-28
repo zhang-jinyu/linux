@@ -41,7 +41,7 @@ enum pwm_polarity {
  */
 struct pwm_args {
 	u64 period;
-	unsigned int offset;
+	u64 offset;
 	enum pwm_polarity polarity;
 };
 
@@ -61,7 +61,7 @@ enum {
 struct pwm_state {
 	u64 period;
 	u64 duty_cycle;
-	unsigned int offset;
+	u64 offset;
 	enum pwm_polarity polarity;
 	bool enabled;
 };
@@ -141,13 +141,13 @@ static inline u64 pwm_get_duty_cycle(const struct pwm_device *pwm)
 	return state.duty_cycle;
 }
 
-static inline void pwm_set_offset(struct pwm_device *pwm, unsigned int offset)
+static inline void pwm_set_offset(struct pwm_device *pwm, u64 offset)
 {
 	if (pwm)
 		pwm->state.offset = offset;
 }
 
-static inline unsigned int pwm_get_offset(const struct pwm_device *pwm)
+static inline u64 pwm_get_offset(const struct pwm_device *pwm)
 {
 	struct pwm_state state;
 
@@ -327,9 +327,9 @@ struct pwm_chip {
  * @duty_cycle: duty cycle of the PWM signal (in nanoseconds)
  */
 struct pwm_capture {
-	unsigned int period;
-	unsigned int duty_cycle;
-	unsigned int offset;
+	u64 period;
+	u64 duty_cycle;
+	u64 offset;
 };
 
 #if IS_ENABLED(CONFIG_PWM)
