@@ -97,6 +97,12 @@ config PWM_AXI_PWMGEN
 	  To compile this driver as a module, choose M here: the module will be
 	  called pwm-axi-pwm-gen.
 
+config PWM_AXI_PWMGEN_DEBUG
+	tristate "Debug Analog Devices AXI PWM generator"
+	depends on PWM_AXI_PWMGEN
+	help
+	  This enables debug interface for the Analog Devices AXI PWM generator.
+
 config PWM_BCM_IPROC
 	tristate "iProc PWM support"
 	depends on ARCH_BCM_IPROC || COMPILE_TEST

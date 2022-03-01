@@ -47,6 +47,10 @@ struct axi_pwmgen {
 
 	/* Used to store the period when the channel is disabled */
 	unsigned long long	ch_period[4];
+
+#ifdef CONFIG_PWM_AXI_PWMGEN_DEBUG
+	unsigned char		debug_channel;
+#endif
 };
 
 static inline unsigned int axi_pwmgen_read(struct axi_pwmgen *pwm,
@@ -205,6 +209,84 @@ static void axi_pwmgen_clk_disable(void *data)
 	clk_disable_unprepare(data);
 }
 
+#ifdef CONFIG_PWM_AXI_PWMGEN_DEBUG
+
+static ssize_t axi_pwmgen_show(struct device *dev, struct device_attribute *attr,
+			       char *buf)
+{
+	struct axi_pwmgen *pwm = dev_get_drvdata(dev);
+	struct pwm_capture capture;
+	struct pwm_device pwmdev;
+	int val;
+
+	pwmdev.hwpwm = pwm->debug_channel;
+	axi_pwmgen_capture(&pwm->chip, &pwmdev, &capture, 0);
+
+	if (strcmp(attr->attr.name,"period") == 0) {
+		val = capture.period * axi_pwmgen_scales[capture.time_unit];
+		return sprintf(buf, "0x%X\n", val);
+	} else if (strcmp(attr->attr.name,"duty") == 0) {
+		val = capture.duty_cycle * axi_pwmgen_scales[capture.time_unit];
+		return sprintf(buf, "0x%X\n", val);
+	} else if (strcmp(attr->attr.name,"offset") == 0) {
+		val = capture.offset * axi_pwmgen_scales[capture.time_unit];
+		return sprintf(buf, "0x%X\n", val);
+	} else if (strcmp(attr->attr.name,"channel") == 0) {
+		return sprintf(buf, "0x%X\n", pwm->debug_channel);
+	} else {
+		return -EINVAL;
+	}
+}
+
+static ssize_t axi_pwmgen_store(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct axi_pwmgen *pwm = dev_get_drvdata(dev);
+	struct pwm_capture capture;
+	struct pwm_device pwmdev;
+	struct pwm_state state;
+	long val;
+
+	pwmdev.hwpwm = pwm->debug_channel;
+	axi_pwmgen_capture(&pwm->chip, &pwmdev, &capture, 0);
+	state.enabled = true;
+	state.time_unit = PWM_UNIT_NSEC;
+	state.period = capture.period;
+	state.duty_cycle = capture.duty_cycle;
+	state.offset = capture.offset;
+
+	kstrtol(buf, 0, &val);
+	if (strcmp(attr->attr.name,"period") == 0){
+		state.period = val;
+	} else if (strcmp(attr->attr.name,"duty") == 0) {
+		state.duty_cycle = val;
+	} else if (strcmp(attr->attr.name,"offset") == 0) {
+		state.offset = val;
+	} else if (strcmp(attr->attr.name,"channel") == 0) {
+		if (val > pwm->chip.npwm || val < 0)
+			return -EINVAL;
+		pwm->debug_channel = val;
+		return count;
+	} else {
+		return -EINVAL;
+	}
+
+	axi_pwmgen_apply(&pwm->chip, &pwmdev, &state);
+
+	return count;
+}
+
+static DEVICE_ATTR(period, S_IWUSR | S_IRUGO,axi_pwmgen_show,
+		   axi_pwmgen_store);
+static DEVICE_ATTR(duty, S_IWUSR | S_IRUGO, axi_pwmgen_show,
+		   axi_pwmgen_store);
+static DEVICE_ATTR(offset, S_IWUSR | S_IRUGO, axi_pwmgen_show,
+		   axi_pwmgen_store);
+static DEVICE_ATTR(channel, S_IWUSR | S_IRUGO, axi_pwmgen_show,
+		   axi_pwmgen_store);
+
+#endif//CONFIG_PWM_AXI_PWMGEN_DEBUG
+
 static int axi_pwmgen_probe(struct platform_device *pdev)
 {
 	struct axi_pwmgen *pwm;
@@ -246,6 +328,12 @@ static int axi_pwmgen_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwm);
 
+#ifdef CONFIG_PWM_AXI_PWMGEN_DEBUG
+	device_create_file(&pdev->dev, &dev_attr_period);
+	device_create_file(&pdev->dev, &dev_attr_offset);
+	device_create_file(&pdev->dev, &dev_attr_duty);
+	device_create_file(&pdev->dev, &dev_attr_channel);
+#endif
 	return 0;
 }
 
