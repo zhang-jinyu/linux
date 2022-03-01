@@ -109,6 +109,30 @@ static int axi_pwmgen_apply(struct pwm_chip *chip, struct pwm_device *device,
 	return 0;
 }
 
+static int axi_pwmgen_capture(struct pwm_chip *chip, struct pwm_device *device,
+			      struct pwm_capture *capture,
+			      unsigned long timeout)
+{
+	struct axi_pwmgen *pwmgen = to_axi_pwmgen(chip);
+	unsigned long long rate, cnt, clk_period_ps;
+	unsigned int ch = device->hwpwm;
+
+	if (timeout);
+
+	rate = clk_get_rate(pwmgen->clk);
+	clk_period_ps = DIV_ROUND_CLOSEST_ULL(AXI_PWMGEN_PSEC_PER_SEC, rate);
+
+	cnt = axi_pwmgen_read(pwmgen, AXI_PWMGEN_CHX_PERIOD(ch));
+	capture->period = cnt * clk_period_ps;
+	cnt = axi_pwmgen_read(pwmgen, AXI_PWMGEN_CHX_DUTY(ch));
+	capture->duty_cycle = cnt * clk_period_ps;
+	cnt = axi_pwmgen_read(pwmgen, AXI_PWMGEN_CHX_OFFSET(ch));
+	capture->offset = cnt * clk_period_ps;
+	capture->time_unit = PWM_UNIT_PSEC;
+
+	return 0;
+}
+
 static void axi_pwmgen_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 {
 	unsigned int ch = pwm->hwpwm;
@@ -133,6 +157,7 @@ static const struct pwm_ops axi_pwmgen_pwm_ops = {
 	.apply = axi_pwmgen_apply,
 	.disable = axi_pwmgen_disable,
 	.enable = axi_pwmgen_enable,
+	.capture = axi_pwmgen_capture,
 	.owner = THIS_MODULE,
 };
 
