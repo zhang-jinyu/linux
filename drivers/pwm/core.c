@@ -585,7 +585,8 @@ int pwm_apply_state(struct pwm_device *pwm, const struct pwm_state *state)
 	    state->duty_cycle == pwm->state.duty_cycle &&
 	    state->polarity == pwm->state.polarity &&
 	    state->offset == pwm->state.offset &&
-	    state->enabled == pwm->state.enabled)
+	    state->enabled == pwm->state.enabled &&
+	    state->time_unit == pwm->state.time_unit)
 		return 0;
 
 	if (chip->ops->apply) {
@@ -712,6 +713,7 @@ int pwm_adjust_config(struct pwm_device *pwm)
 		state.duty_cycle = 0;
 		state.period = pargs.period;
 		state.polarity = pargs.polarity;
+		state.time_unit = pargs.time_unit;
 
 		return pwm_apply_state(pwm, &state);
 	}
