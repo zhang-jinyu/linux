@@ -20,7 +20,7 @@ struct pwm_chip;
  * @PWM_UNIT_PSEC: the pwm_args members are specified in picoseconds
  */
 
-enum pwm_unit {
+enum pwm_time_unit {
 	PWM_UNIT_SEC,
 	PWM_UNIT_MSEC,
 	PWM_UNIT_USEC,
@@ -61,7 +61,7 @@ struct pwm_args {
 	u64 period;
 	u64 offset;
 	enum pwm_polarity polarity;
-	enum pwm_unit time_unit;
+	enum pwm_time_unit time_unit;
 };
 
 enum {
@@ -83,7 +83,7 @@ struct pwm_state {
 	u64 duty_cycle;
 	u64 offset;
 	enum pwm_polarity polarity;
-	enum pwm_unit time_unit;
+	enum pwm_time_unit time_unit;
 	bool enabled;
 };
 
@@ -371,7 +371,7 @@ struct pwm_capture {
 	u64 period;
 	u64 duty_cycle;
 	u64 offset;
-	enum pwm_unit time_unit;
+	enum pwm_time_unit time_unit;
 };
 
 #if IS_ENABLED(CONFIG_PWM)
