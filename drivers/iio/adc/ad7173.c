@@ -416,31 +416,30 @@ static struct ad7173_state *ad_sigma_delta_to_ad7173(struct ad_sigma_delta *sd)
 	return container_of(sd, struct ad7173_state, sd);
 }
 
-static int ad7173_prepare_channel(struct ad_sigma_delta *sd, unsigned int slot,
-	const struct iio_chan_spec *chan)
-{
-	unsigned int config;
-
-	config = AD7173_SETUP_REF_SEL_INT_REF;
-
-	if (chan->differential)
-		config |= AD7173_SETUP_BIPOLAR;
-
-	return ad_sd_write_reg(sd, AD7173_REG_SETUP(slot), 2, config);
-}
-
-static int ad7173_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
+/*
+ * TODO: AD7173 has the same problems as AD7124.
+ * It has only 8 config register but supports up to 14 channels.
+ * It can't have more than 8 different channels specified at once.
+ * It needs the same implementation as AD7124 in order to have more channels supported at once.
+ */
+static int ad7173_set_channel(struct ad_sigma_delta *sd,
 	unsigned int channel)
 {
 	struct ad7173_state *st = ad_sigma_delta_to_ad7173(sd);
-	unsigned int val;
+	struct iio_dev *indio_dev = spi_get_drvdata(sd->spi);
+	unsigned int config;
+	int ret;
 
-	if (channel == AD_SD_SLOT_DISABLE)
-	    val = 0;
-	else
-	    val = AD7173_CH_ENABLE | channel;
+	config = AD7173_SETUP_REF_SEL_INT_REF;
 
-	return ad_sd_write_reg(&st->sd, AD7173_REG_CH(slot), 2, val);
+	if (indio_dev->channels[channel].differential)
+		config |= AD7173_SETUP_BIPOLAR;
+
+	ret = ad_sd_write_reg(sd, AD7173_REG_SETUP(channel), 2, config);
+	if (ret < 0)
+		return ret;
+
+	return ad_sd_write_reg(&st->sd, AD7173_REG_CH(channel), 2, AD7173_CH_ENABLE | channel);
 }
 
 static int ad7173_set_mode(struct ad_sigma_delta *sd,
@@ -456,7 +455,6 @@ static int ad7173_set_mode(struct ad_sigma_delta *sd,
 
 static const struct ad_sigma_delta_info ad7173_sigma_delta_info = {
 	.set_channel = ad7173_set_channel,
-	.prepare_channel = ad7173_prepare_channel,
 	.set_mode = ad7173_set_mode,
 	.has_registers = true,
 	.data_reg = AD7173_REG_DATA,
@@ -759,22 +757,20 @@ static int ad7173_probe(struct spi_device *spi)
 	if (ret)
 		return ret;
 
-	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
+	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
 	if (ret)
 		goto error_disable_reg;
 
 	ret = ad7173_setup(indio_dev);
 	if (ret)
-		goto error_remove_trigger;
+		goto error_disable_reg;
 
 	ret = iio_device_register(indio_dev);
 	if (ret)
-		goto error_remove_trigger;
+		goto error_disable_reg;
 
 	return ad7173_gpio_init(st);
 
-error_remove_trigger:
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
 error_disable_reg:
 	return ret;
 }
@@ -787,7 +783,6 @@ static int ad7173_remove(struct spi_device *spi)
 	ad7173_gpio_cleanup(st);
 
 	iio_device_unregister(indio_dev);
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
 
 	return 0;
 }

@@ -223,8 +223,7 @@ static struct ad7791_state *ad_sigma_delta_to_ad7791(struct ad_sigma_delta *sd)
 	return container_of(sd, struct ad7791_state, sd);
 }
 
-static int ad7791_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
-	unsigned int channel)
+static int ad7791_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
 	ad_sd_set_comm(sd, channel);
 
@@ -486,22 +485,20 @@ static int ad7791_probe(struct spi_device *spi)
 	else
 		indio_dev->info = &ad7791_no_filter_info;
 
-	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
+	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
 	if (ret)
 		goto error_disable_reg;
 
 	ret = ad7791_setup(st, pdata);
 	if (ret)
-		goto error_remove_trigger;
+		goto error_disable_reg;
 
 	ret = iio_device_register(indio_dev);
 	if (ret)
-		goto error_remove_trigger;
+		goto error_disable_reg;
 
 	return 0;
 
-error_remove_trigger:
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
 error_disable_reg:
 	regulator_disable(st->reg);
 
@@ -514,8 +511,6 @@ static int ad7791_remove(struct spi_device *spi)
 	struct ad7791_state *st = iio_priv(indio_dev);
 
 	iio_device_unregister(indio_dev);
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
-
 	regulator_disable(st->reg);
 
 	return 0;

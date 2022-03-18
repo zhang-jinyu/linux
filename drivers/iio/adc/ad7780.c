@@ -340,18 +340,16 @@ static int ad7780_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
+	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
 	if (ret)
 		goto error_disable_reg;
 
 	ret = iio_device_register(indio_dev);
 	if (ret)
-		goto error_cleanup_buffer_and_trigger;
+		goto error_disable_reg;
 
 	return 0;
 
-error_cleanup_buffer_and_trigger:
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
 error_disable_reg:
 	regulator_disable(st->reg);
 
@@ -364,7 +362,6 @@ static int ad7780_remove(struct spi_device *spi)
 	struct ad7780_state *st = iio_priv(indio_dev);
 
 	iio_device_unregister(indio_dev);
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
 
 	regulator_disable(st->reg);
 

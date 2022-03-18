@@ -22,8 +22,6 @@
 #include <linux/iio/adc/ad_sigma_delta.h>
 #include <linux/iio/sysfs.h>
 
-#define AD7124_SEQUENCER_SLOTS		16
-
 /* AD7124 registers */
 #define AD7124_COMMS			0x00
 #define AD7124_STATUS			0x00
@@ -45,6 +43,8 @@
 #define AD7124_STATUS_POR_FLAG_MSK	BIT(4)
 
 /* AD7124_ADC_CONTROL */
+#define AD7124_ADC_STATUS_EN_MSK	BIT(10)
+#define AD7124_ADC_STATUS_EN(x)		FIELD_PREP(AD7124_ADC_STATUS_EN_MSK, x)
 #define AD7124_ADC_CTRL_REF_EN_MSK	BIT(8)
 #define AD7124_ADC_CTRL_REF_EN(x)	FIELD_PREP(AD7124_ADC_CTRL_REF_EN_MSK, x)
 #define AD7124_ADC_CTRL_PWR_MSK	GENMASK(7, 6)
@@ -144,6 +144,8 @@ struct ad7124_chip_info {
 };
 
 struct ad7124_channel_config {
+	bool live;
+	unsigned int cfg_slot;
 	enum ad7124_ref_sel refsel;
 	bool bipolar;
 	bool buf_positive;
@@ -153,8 +155,6 @@ struct ad7124_channel_config {
 	unsigned int odr;
 	unsigned int odr_sel_bits;
 	unsigned int filter_type;
-	bool live;
-	unsigned int cfg_slot;
 };
 
 struct ad7124_channel {
@@ -348,7 +348,7 @@ static int ad7124_find_free_config_slot(struct ad7124_state *st)
 {
 	unsigned int free_cfg_slot;
 
-	free_cfg_slot = find_next_zero_bit(&st->cfg_slots_status, AD7124_MAX_CONFIGS, 0);
+	free_cfg_slot = find_first_zero_bit(&st->cfg_slots_status, AD7124_MAX_CONFIGS);
 	if (free_cfg_slot == AD7124_MAX_CONFIGS)
 		return -1;
 
@@ -502,24 +502,10 @@ static int ad7124_prepare_read(struct ad7124_state *st, int address)
 	return ad7124_enable_channel(st, &st->channels[address]);
 }
 
-static int ad7124_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
-			      unsigned int channel)
+static int ad7124_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
 {
 	struct ad7124_state *st = container_of(sd, struct ad7124_state, sd);
 	int ret;
-	int i;
-
-	if (channel == AD_SD_SLOT_DISABLE) {
-		for (i = 0; i < AD7124_MAX_CHANNELS; i++) {
-			/* disable channel associated with unused slot */
-			if (st->channels[i].slot == slot)
-				return ad_sd_write_reg(&st->sd, AD7124_CHANNEL(i), 2, 0);
-		}
-
-		return 0;
-	}
-
-	st->channels[channel].slot = slot;
 
 	mutex_lock(&st->cfgs_lock);
 	ret = ad7124_prepare_read(st, channel);
@@ -528,14 +514,43 @@ static int ad7124_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
 	return ret;
 }
 
+static int ad7124_append_status(struct ad_sigma_delta *sd, bool append)
+{
+	struct ad7124_state *st = container_of(sd, struct ad7124_state, sd);
+
+	st->adc_control &= ~AD7124_ADC_STATUS_EN_MSK;
+	st->adc_control |= AD7124_ADC_STATUS_EN(append);
+
+	return ad_sd_write_reg(&st->sd, AD7124_ADC_CONTROL, 2, st->adc_control);
+}
+
+static int ad7124_disable_all(struct ad_sigma_delta *sd)
+{
+	struct ad7124_state *st = container_of(sd, struct ad7124_state, sd);
+	int ret;
+	int i;
+
+	for (i = 0; i < st->num_channels; i++) {
+		ret = ad7124_spi_write_mask(st, AD7124_CHANNEL(i), AD7124_CHANNEL_EN_MSK, 0, 2);
+		if (ret < 0)
+			return ret;
+	}
+
+	return 0;
+}
+
 static const struct ad_sigma_delta_info ad7124_sigma_delta_info = {
 	.set_channel = ad7124_set_channel,
+	.append_status = ad7124_append_status,
+	.disable_all = ad7124_disable_all,
 	.set_mode = ad7124_set_mode,
 	.has_registers = true,
 	.addr_shift = 0,
 	.read_mask = BIT(6),
+	.status_ch_mask = GENMASK(3, 0),
 	.data_reg = AD7124_DATA,
-	.irq_flags = IRQF_TRIGGER_FALLING
+	.num_slots = 8,
+	.irq_flags = IRQF_TRIGGER_FALLING,
 };
 
 static int ad7124_read_raw(struct iio_dev *indio_dev,
@@ -695,10 +710,11 @@ static int ad7124_update_scan_mode(struct iio_dev *indio_dev,
 
 	for (i = 0; i < st->num_channels; i++) {
 		bit_set = test_bit(i, scan_mask);
-		ret = ad7124_spi_write_mask(st, AD7124_CHANNEL(i),
-					    AD7124_CHANNEL_EN_MSK,
-					    AD7124_CHANNEL_EN(bit_set),
-					    2);
+		if (bit_set)
+			ret = ad7124_set_channel(&st->sd, i);
+		else
+			ret = ad7124_spi_write_mask(st, AD7124_CHANNEL(i), AD7124_CHANNEL_EN_MSK,
+						    0, 2);
 		if (ret < 0)
 			return ret;
 	}
@@ -898,6 +914,11 @@ static void ad7124_reg_disable(void *r)
 	regulator_disable(r);
 }
 
+static void ad7124_clk_disable(void *c)
+{
+	clk_disable_unprepare(c);
+}
+
 static int ad7124_probe(struct spi_device *spi)
 {
 	const struct ad7124_chip_info *info;
@@ -917,13 +938,13 @@ static int ad7124_probe(struct spi_device *spi)
 
 	st->chip_info = info;
 
-	ad_sd_init(&st->sd, indio_dev, spi, &ad7124_sigma_delta_info);
-	st->sd.num_slots = AD7124_SEQUENCER_SLOTS;
-	spi_set_drvdata(spi, indio_dev);
-
 	indio_dev->name = st->chip_info->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->info = &ad7124_info;
+
+	ret = ad_sd_init(&st->sd, indio_dev, spi, &ad7124_sigma_delta_info);
+	if (ret < 0)
+		return ret;
 
 	ret = ad7124_of_parse_channel_config(indio_dev, spi->dev.of_node);
 	if (ret < 0)
@@ -958,48 +979,28 @@ static int ad7124_probe(struct spi_device *spi)
 	if (ret < 0)
 		return ret;
 
+	ret = devm_add_action_or_reset(&spi->dev, ad7124_clk_disable, st->mclk);
+	if (ret)
+		return ret;
+
 	ret = ad7124_soft_reset(st);
 	if (ret < 0)
-		goto error_clk_disable_unprepare;
+		return ret;
 
 	ret = ad7124_check_chip_id(st);
 	if (ret)
-		goto error_clk_disable_unprepare;
+		return ret;
 
 	ret = ad7124_setup(st);
 	if (ret < 0)
-		goto error_clk_disable_unprepare;
+		return ret;
 
-	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
+	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
 	if (ret < 0)
-		goto error_clk_disable_unprepare;
+		return ret;
 
-	ret = iio_device_register(indio_dev);
-	if (ret < 0) {
-		dev_err(&spi->dev, "Failed to register iio device\n");
-		goto error_remove_trigger;
-	}
+	return devm_iio_device_register(&spi->dev, indio_dev);
 
-	return 0;
-
-error_remove_trigger:
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
-error_clk_disable_unprepare:
-	clk_disable_unprepare(st->mclk);
-
-	return ret;
-}
-
-static int ad7124_remove(struct spi_device *spi)
-{
-	struct iio_dev *indio_dev = spi_get_drvdata(spi);
-	struct ad7124_state *st = iio_priv(indio_dev);
-
-	iio_device_unregister(indio_dev);
-	ad_sd_cleanup_buffer_and_trigger(indio_dev);
-	clk_disable_unprepare(st->mclk);
-
-	return 0;
 }
 
 static const struct of_device_id ad7124_of_match[] = {
@@ -1017,10 +1018,10 @@ static struct spi_driver ad71124_driver = {
 		.of_match_table = ad7124_of_match,
 	},
 	.probe = ad7124_probe,
-	.remove	= ad7124_remove,
 };
 module_spi_driver(ad71124_driver);
 
 MODULE_AUTHOR("Stefan Popa <stefan.popa@analog.com>");
 MODULE_DESCRIPTION("Analog Devices AD7124 SPI driver");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS(IIO_AD_SIGMA_DELTA);
