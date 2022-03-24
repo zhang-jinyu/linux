@@ -34,14 +34,16 @@
 	clocks {
 		ad9695_clkin: clock@0 {
 			#clock-cells = <0>;
-			compatible = "fixed-clock";
+			compatible = "adjustable-clock";
 			clock-frequency = <1300000000>;
+			clock-accuracy = <1000000000>; 
 			clock-output-names = "ad9695_clk";
 		};
 		device_clk: clock@1 {
 			#clock-cells = <0>;
-			compatible = "fixed-clock";
+			compatible = "adjustable-clock";
 			clock-frequency = <325000000>;
+			clock-accuracy = <1000000000>; 
 			clock-output-names = "dev_clk";
 		};
 	};
@@ -134,7 +136,7 @@
 	status = "okay";
 
 	adc0_ad9695: ad9695@0 {
-		compatible = "adi,ad9208";
+		compatible = "adi,ad9695";
 
 		powerdown-gpios = <&gpio 116 0>;
 		fastdetect-a-gpios = <&gpio 113 0>;
@@ -142,8 +144,9 @@
 
 		spi-cpol;
 		spi-cpha;
-		spi-max-frequency = <10000000>;
+		spi-max-frequency = <5000000>;
 		reg = <0>;
+
 
 		clocks = <&axi_ad9695_jesd>, <&ad9695_clkin>;
 		clock-names = "jesd_adc_clk", "adc_clk";
