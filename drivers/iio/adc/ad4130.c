@@ -15,6 +15,7 @@
 #include <linux/irq.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/of_irq.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
@@ -1671,8 +1672,7 @@ static int ad4310_parse_fw(struct iio_dev *indio_dev)
 	st->int_pin_sel = AD4130_INT_PIN_DOUT_OR_INT;
 
 	for (i = 0; i < ARRAY_SIZE(ad4130_int_pin_names); i++) {
-		irq = fwnode_irq_get_byname(dev_fwnode(dev),
-					    ad4130_int_pin_names[i]);
+		irq = of_irq_get_byname(dev->of_node, ad4130_int_pin_names[i]);
 		if (irq > 0) {
 			st->int_pin_sel = i;
 			break;
